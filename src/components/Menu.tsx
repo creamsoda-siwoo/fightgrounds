@@ -26,6 +26,7 @@ interface Props {
   quality: Quality;
   sensitivity: number;
   volume: number;
+  fps: number;
   onName: (v: string) => void;
   onQuality: (q: Quality) => void;
   onSensitivity: (v: number) => void;
@@ -54,6 +55,9 @@ export default function Menu(p: Props) {
           <input id="nick" value={p.name} maxLength={16} autoComplete="off" spellCheck={false} onChange={(e) => p.onName(e.target.value)} placeholder="생존자 이름" />
           <button type="submit" className="btn primary big">매치 시작</button>
           <span className="start-note">데스크톱 · 키보드와 마우스 전용</span>
+          {p.fps > 0 && p.fps < 26 && p.quality !== 'low' && (
+            <span className="start-note warn">현재 {p.fps} FPS — 설정 탭에서 그래픽 품질을 낮추면 더 부드럽게 플레이할 수 있습니다.</span>
+          )}
         </form>
       </div>
       <div className="menu-right">

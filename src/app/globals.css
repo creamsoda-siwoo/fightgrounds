@@ -112,6 +112,7 @@ h1, h2, h3, p { margin: 0; }
 .start input:focus { border-color: var(--amber); }
 .start .btn { height: 58px; }
 .start-note { grid-column: 1 / -1; font-size: 12px; color: var(--muted); }
+.start-note.warn { color: var(--amber); }
 
 .menu-right {
   background: var(--panel);

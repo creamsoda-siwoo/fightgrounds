@@ -31,9 +31,9 @@ const GradeShader = {
       vec2 c = vUv - 0.5;
       float r2 = dot(c, c);
       vec3 col;
-      col.r = texture2D(tDiffuse, vUv + c * r2 * 0.01).r;
+      col.r = texture2D(tDiffuse, vUv + c * r2 * 0.0055).r;
       col.g = texture2D(tDiffuse, vUv).g;
-      col.b = texture2D(tDiffuse, vUv - c * r2 * 0.01).b;
+      col.b = texture2D(tDiffuse, vUv - c * r2 * 0.0055).b;
       // filmic grade: gentle S-curve, warm highlights, cool shadows
       float l = dot(col, vec3(0.299, 0.587, 0.114));
       col = mix(vec3(l), col, 1.1 - uLowHp * 0.65);

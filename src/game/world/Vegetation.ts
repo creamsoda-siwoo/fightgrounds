@@ -90,10 +90,10 @@ function blob(r: number, detail: number, noise: Noise2D, seed: number, squash = 
   return g;
 }
 
-function pineGeometry(rng: Rng, noise: Noise2D): THREE.BufferGeometry {
+function pineGeometry(rng: Rng, noise: Noise2D, lo = false): THREE.BufferGeometry {
   const H = 9.5;
   const parts: Part[] = [];
-  const trunk = new THREE.CylinderGeometry(0.07, 0.3, H * 0.96, 7, 3).translate(0, H * 0.48, 0);
+  const trunk = new THREE.CylinderGeometry(0.07, 0.3, H * 0.96, lo ? 5 : 7, lo ? 1 : 3).translate(0, H * 0.48, 0);
   parts.push({
     g: trunk,
     color: (_y, _n, v) => {
@@ -105,14 +105,17 @@ function pineGeometry(rng: Rng, noise: Noise2D): THREE.BufferGeometry {
   const tiers = 7;
   for (let k = 0; k < tiers; k++) {
     const t = k / (tiers - 1);
-    const r = THREE.MathUtils.lerp(2.5, 0.55, Math.pow(t, 0.85));
-    const h = THREE.MathUtils.lerp(2.6, 1.5, t);
-    const y = H * (0.24 + 0.64 * t);
-    const seg = 11;
-    const g = new THREE.ConeGeometry(r, h, seg, 2, true);
+    const rot = rng() * 6.28;
+    const shade = 0.82 + rng() * 0.3;
+    // the distant version keeps every other tier and stretches it to fill the gap
+    if (lo && k % 2 === 1) continue;
+    const r = THREE.MathUtils.lerp(2.5, 0.55, Math.pow(t, 0.85)) * (lo ? 1.06 : 1);
+    const h = THREE.MathUtils.lerp(2.6, 1.5, t) * (lo ? 1.55 : 1);
+    const y = H * (0.24 + 0.64 * t) + (lo ? 0.35 : 0);
+    const seg = lo ? 7 : 11;
+    const g = new THREE.ConeGeometry(r, h, seg, lo ? 1 : 2, true);
     const p = g.getAttribute('position');
     const v = new THREE.Vector3();
-    const rot = rng() * 6.28;
     for (let i = 0; i < p.count; i++) {
       v.fromBufferAttribute(p, i);
       const ang = Math.atan2(v.z, v.x);
@@ -124,7 +127,6 @@ function pineGeometry(rng: Rng, noise: Noise2D): THREE.BufferGeometry {
       p.setXYZ(i, Math.cos(ang + rot * 0.1) * nr, v.y - droop + y, Math.sin(ang + rot * 0.1) * nr);
     }
     g.computeVertexNormals();
-    const shade = 0.82 + rng() * 0.3;
     parts.push({
       g,
       color: (y01, n) => {
@@ -138,11 +140,11 @@ function pineGeometry(rng: Rng, noise: Noise2D): THREE.BufferGeometry {
   return assemble(parts);
 }
 
-function broadleafGeometry(rng: Rng, noise: Noise2D, big: boolean): THREE.BufferGeometry {
+function broadleafGeometry(rng: Rng, noise: Noise2D, big: boolean, lo = false): THREE.BufferGeometry {
   const H = big ? 7.5 : 5.5;
   const parts: Part[] = [];
   const trunkH = H * 0.6;
-  const trunk = new THREE.CylinderGeometry(big ? 0.2 : 0.13, big ? 0.42 : 0.26, trunkH, 8, 4).translate(0, trunkH / 2, 0);
+  const trunk = new THREE.CylinderGeometry(big ? 0.2 : 0.13, big ? 0.42 : 0.26, trunkH, lo ? 5 : 8, lo ? 2 : 4).translate(0, trunkH / 2, 0);
   {
     const p = trunk.getAttribute('position');
     const v = new THREE.Vector3();
@@ -167,7 +169,7 @@ function broadleafGeometry(rng: Rng, noise: Noise2D, big: boolean): THREE.Buffer
     const cx = Math.cos(a) * rr + 0.3;
     const cz = Math.sin(a) * rr - 0.15;
     // branch
-    if (k > 0 && k % 2 === 0) {
+    if (k > 0 && k % 2 === 0 && !lo) {
       const len = Math.hypot(cx, cy - trunkH * 0.7, cz);
       const br = new THREE.CylinderGeometry(0.05, 0.11, len, 5, 1).translate(0, len / 2, 0);
       const dir = new THREE.Vector3(cx, cy - trunkH * 0.7, cz).normalize();
@@ -175,9 +177,12 @@ function broadleafGeometry(rng: Rng, noise: Noise2D, big: boolean): THREE.Buffer
       br.translate(0.15, trunkH * 0.7, 0);
       parts.push({ g: br, color: bark, sway: (v) => Math.pow(v.y / H, 2) * 0.5 });
     }
-    const g = blob(r, 2, noise, k * 13.7 + rng() * 50, 0.78).translate(cx, cy, cz);
+    const seed = k * 13.7 + rng() * 50;
     const tint = rrange(rng, 0.85, 1.2);
     const warm = rng() * 0.12;
+    // distant trees keep only their four largest masses
+    if (lo && k >= 4) continue;
+    const g = blob(lo ? r * 1.12 : r, lo ? 1 : k < 3 ? 2 : 1, noise, seed, 0.78).translate(cx, cy, cz);
     parts.push({
       g,
       color: (y01, n) => {
@@ -191,14 +196,16 @@ function broadleafGeometry(rng: Rng, noise: Noise2D, big: boolean): THREE.Buffer
   return assemble(parts);
 }
 
-function bushGeometry(rng: Rng, noise: Noise2D): THREE.BufferGeometry {
+function bushGeometry(rng: Rng, noise: Noise2D, lo = false): THREE.BufferGeometry {
   const parts: Part[] = [];
   for (let k = 0; k < 4; k++) {
     const a = rng() * 6.28;
     const rr = k === 0 ? 0 : rrange(rng, 0.4, 0.8);
-    const r = rrange(rng, 0.55, 0.85);
-    const g = blob(r, 1, noise, k * 5.1 + rng() * 30, 0.75).translate(Math.cos(a) * rr, r * 0.6, Math.sin(a) * rr);
+    const r = rrange(rng, 0.55, 0.85) * (lo ? 1.2 : 1);
+    const seed = k * 5.1 + rng() * 30;
     const tint = rrange(rng, 0.8, 1.15);
+    if (lo && k >= 2) continue;
+    const g = blob(r, lo ? 0 : 1, noise, seed, 0.75).translate(Math.cos(a) * rr, r * 0.6, Math.sin(a) * rr);
     parts.push({
       g,
       color: (y01, n) => {
@@ -212,8 +219,8 @@ function bushGeometry(rng: Rng, noise: Noise2D): THREE.BufferGeometry {
   return assemble(parts);
 }
 
-function rockGeometry(noise: Noise2D, seed: number): THREE.BufferGeometry {
-  let g: THREE.BufferGeometry = new THREE.IcosahedronGeometry(1, 2);
+function rockGeometry(noise: Noise2D, seed: number, lo = false): THREE.BufferGeometry {
+  let g: THREE.BufferGeometry = new THREE.IcosahedronGeometry(1, lo ? 1 : 2);
   g.deleteAttribute('normal');
   g.deleteAttribute('uv');
   g = mergeVertices(g, 1e-3);
@@ -262,6 +269,9 @@ export class Vegetation {
   private grass: THREE.Mesh | null = null;
   private grassUniforms: { uCam: { value: THREE.Vector3 }; uTime: { value: number } } | null = null;
   treeCount = 0;
+  private chunks: { hi: THREE.InstancedMesh; lo: THREE.InstancedMesh; x: number; z: number }[] = [];
+  private lodT = 0;
+  private lodDist: number;
 
   constructor(
     private terrain: Terrain,
@@ -273,6 +283,7 @@ export class Vegetation {
     private occupied: (x: number, z: number, r: number) => boolean,
   ) {
     const rng = mulberry32(9917);
+    this.lodDist = q.treeLod;
     const foliageMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86, metalness: 0, map: tex.leaf, normalMap: tex.leafN });
     foliageMat.normalScale.set(0.9, 0.9);
     foliageMat.onBeforeCompile = (shader) => {
@@ -299,12 +310,16 @@ transformed.z += sway * w2 * 0.14;`,
     });
     rockMat.normalScale.set(1.1, 1.1);
 
-    const geos = {
-      pine: [pineGeometry(rng, noise), pineGeometry(rng, noise)],
-      leaf: [broadleafGeometry(rng, noise, true), broadleafGeometry(rng, noise, false), broadleafGeometry(rng, noise, true)],
-      bush: [bushGeometry(rng, noise), bushGeometry(rng, noise)],
-      rock: [rockGeometry(noise, 1.3), rockGeometry(noise, 7.9), rockGeometry(noise, 15.1)],
-    };
+    // every plant exists twice: a detailed mesh for nearby chunks and a
+    // cheap one that is swapped in at a distance (same seed, same silhouette)
+    const build = (lo: boolean) => ({
+      pine: [0, 1].map((i) => pineGeometry(mulberry32(310 + i), noise, lo)),
+      leaf: [0, 1, 2].map((i) => broadleafGeometry(mulberry32(330 + i), noise, i !== 1, lo)),
+      bush: [0, 1].map((i) => bushGeometry(mulberry32(350 + i), noise, lo)),
+      rock: [1.3, 7.9, 15.1].map((sd) => rockGeometry(noise, sd, lo)),
+    });
+    const geos = build(false);
+    const geosLo = build(true);
 
     type Kind = 'pine0' | 'pine1' | 'leaf0' | 'leaf1' | 'leaf2' | 'bush0' | 'bush1' | 'rock0' | 'rock1' | 'rock2';
     const buckets = new Map<string, Inst[]>();
@@ -384,32 +399,44 @@ transformed.z += sway * w2 * 0.14;`,
       if (s > 0.8) colliders.addCyl(x, z, Math.min(sx, sz) * 0.82, h - 1, h + sy * 0.86, SURF_ROCK);
     }
 
-    const geoFor = (kind: string): THREE.BufferGeometry => {
+    const geoFor = (kind: string, lo: boolean): THREE.BufferGeometry => {
       const base = kind.slice(0, 4) as 'pine' | 'leaf' | 'bush' | 'rock';
-      return geos[base][Number(kind.slice(4))];
+      return (lo ? geosLo : geos)[base][Number(kind.slice(4))];
     };
     for (const [key, list] of buckets) {
       const kind = key.split('|')[0];
       const isRock = kind.startsWith('rock');
-      const mesh = new THREE.InstancedMesh(geoFor(kind), isRock ? rockMat : foliageMat, list.length);
-      for (let i = 0; i < list.length; i++) {
-        const it = list[i];
-        _e.set(it.rx ?? 0, it.ry, 0, 'YXZ');
-        _q.setFromEuler(_e);
-        _m.compose(_p.set(it.x, it.y, it.z), _q, _s.set(it.sx, it.sy, it.sz));
-        mesh.setMatrixAt(i, _m);
-        if (isRock) _c.setRGB(it.tint, it.tint, it.tint * 0.98);
-        else _c.setRGB(it.tint * 1.02, it.tint, it.tint * 0.92);
-        mesh.setColorAt(i, _c);
+      let cx = 0;
+      let cz = 0;
+      const pair: THREE.InstancedMesh[] = [];
+      for (const lo of [false, true]) {
+        const mesh = new THREE.InstancedMesh(geoFor(kind, lo), isRock ? rockMat : foliageMat, list.length);
+        for (let i = 0; i < list.length; i++) {
+          const it = list[i];
+          _e.set(it.rx ?? 0, it.ry, 0, 'YXZ');
+          _q.setFromEuler(_e);
+          _m.compose(_p.set(it.x, it.y, it.z), _q, _s.set(it.sx, it.sy, it.sz));
+          mesh.setMatrixAt(i, _m);
+          if (isRock) _c.setRGB(it.tint, it.tint, it.tint * 0.98);
+          else _c.setRGB(it.tint * 1.02, it.tint, it.tint * 0.92);
+          mesh.setColorAt(i, _c);
+          if (!lo) {
+            cx += it.x / list.length;
+            cz += it.z / list.length;
+          }
+        }
+        mesh.instanceMatrix.needsUpdate = true;
+        if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+        mesh.computeBoundingSphere();
+        mesh.computeBoundingBox();
+        mesh.castShadow = q.treeShadows && !kind.startsWith('bush');
+        mesh.receiveShadow = true;
+        mesh.matrixAutoUpdate = false;
+        mesh.visible = lo;
+        this.group.add(mesh);
+        pair.push(mesh);
       }
-      mesh.instanceMatrix.needsUpdate = true;
-      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-      mesh.computeBoundingSphere();
-      mesh.computeBoundingBox();
-      mesh.castShadow = q.treeShadows && !kind.startsWith('bush');
-      mesh.receiveShadow = true;
-      mesh.matrixAutoUpdate = false;
-      this.group.add(mesh);
+      this.chunks.push({ hi: pair[0], lo: pair[1], x: cx, z: cz });
     }
 
     if (q.grass > 0) this.buildGrass(q, tex);
@@ -423,17 +450,17 @@ transformed.z += sway * w2 * 0.14;`,
     const uv: number[] = [];
     const idx: number[] = [];
     const rng = mulberry32(4242);
-    for (let b = 0; b < 6; b++) {
-      const a = (b / 6) * Math.PI + rng() * 0.8;
+    for (let b = 0; b < 4; b++) {
+      const a = (b / 4) * Math.PI + rng() * 0.8;
       const ox = (rng() - 0.5) * 0.5;
       const oz = (rng() - 0.5) * 0.5;
-      const w = 0.014 + rng() * 0.012;
-      const hgt = 0.2 + rng() * 0.3;
+      const w = 0.017 + rng() * 0.013;
+      const hgt = 0.22 + rng() * 0.3;
       const lean = (rng() - 0.5) * 0.36;
       const cx = Math.cos(a);
       const cz = Math.sin(a);
       const base = pos.length / 3;
-      const segs = 3;
+      const segs = 2;
       for (let s = 0; s <= segs; s++) {
         const t = s / segs;
         const ww = w * (1 - t * 0.9);
@@ -538,6 +565,20 @@ vGrassCol = base * (0.8 + aOffset.z * 0.4);`,
 
   update(dt: number, camPos: THREE.Vector3): void {
     this.timeUniform.value += dt;
+    this.lodT -= dt;
+    if (this.lodT <= 0) {
+      this.lodT = 0.3;
+      // height counts too so the whole island drops to the cheap meshes from the air
+      const far = this.lodDist;
+      for (const c of this.chunks) {
+        const d = Math.hypot(c.x - camPos.x, c.z - camPos.z) + Math.max(0, camPos.y - 60) * 1.5;
+        const near = d < far;
+        c.hi.visible = near;
+        c.lo.visible = !near;
+      }
+    }
     if (this.grassUniforms) this.grassUniforms.uCam.value.copy(camPos);
+    // nothing to see from the aircraft or under a parachute
+    if (this.grass) this.grass.visible = camPos.y - this.terrain.heightAt(camPos.x, camPos.z) < 45;
   }
 }

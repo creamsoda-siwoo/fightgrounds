@@ -105,6 +105,7 @@ export default function GameClient() {
           quality={s.quality}
           sensitivity={sensitivity}
           volume={volume}
+          fps={s.fps}
           onName={setName}
           onQuality={(q) => {
             if (q === s.quality) return;

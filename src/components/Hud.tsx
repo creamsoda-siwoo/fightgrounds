@@ -201,8 +201,8 @@ export default function Hud({ game, s }: { game: Game; s: HudState }) {
           {s.inventory && <Inventory game={game} s={s} />}
 
           {s.paused && (
-            <div className="pause">
-              <div className="pause-card">
+            <div className="pause" onClick={() => game.resume()}>
+              <div className="pause-card" onClick={(e) => e.stopPropagation()}>
                 <h2>일시 정지</h2>
                 <button className="btn primary" onClick={() => game.resume()}>계속하기</button>
                 <button className="btn" onClick={() => game.toMenu()}>로비로 나가기</button>

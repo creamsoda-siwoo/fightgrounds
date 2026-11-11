@@ -452,6 +452,8 @@ export class Game {
         this.camera.position.set(d.x, d.y, d.z);
         this.camera.lookAt(d.tx, d.ty, d.tz);
       }
+      // culling below needs this frame's camera, not last frame's
+      this.camera.updateMatrixWorld();
       this.presentCharacters(st.paused ? 0 : dt);
     }
     this.camera.updateMatrixWorld();
@@ -469,6 +471,11 @@ export class Game {
     u.uOutside.value += ((out ? 1 : 0) - u.uOutside.value) * Math.min(1, dt * 4);
     this.post.render(dt);
 
+    if (this.fpsAcc > 1) {
+      this.store.set({ fps: Math.round(this.fpsN / this.fpsAcc) });
+      this.fpsAcc = 0;
+      this.fpsN = 0;
+    }
     if (live) this.syncHud(dt);
     else this.store.flush();
     this.input.endFrame();
@@ -615,11 +622,6 @@ export class Game {
       const list = this.ctl.nearList.filter((l) => l.alive).slice(0, 10);
       if (list.length !== near.length || list.some((l, i) => near[i].id !== l.id)) near = list.map((l) => ({ id: l.id, label: itemLabel(l.item), rarity: itemRarity(l.item) }));
     } else if (near.length) near = [];
-    if (this.fpsAcc > 0.5) {
-      this.store.set({ fps: Math.round(this.fpsN / this.fpsAcc) });
-      this.fpsAcc = 0;
-      this.fpsN = 0;
-    }
     this.store.set({
       hp: Math.ceil(p.hp),
       boost: Math.round(p.boost),
