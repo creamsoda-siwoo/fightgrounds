@@ -269,7 +269,7 @@ export class Game {
   }
 
   onLanded(c: Character): void {
-    c.inBuilding = this.world.buildingAt(c.pos.x, c.pos.z);
+    c.inBuilding = this.world.buildingAt(c.pos.x, c.pos.z, c.pos.y);
     if (c === this.player) {
       const site = this.world.nearestSite(c.pos.x, c.pos.z);
       const near = Math.hypot(c.pos.x - site.x, c.pos.z - site.z) < site.radius + 40;
@@ -330,7 +330,11 @@ export class Game {
     }
     // everything they carried ends up on the ground
     const items = victim.spill();
-    if (items.length && victim.pos.y > -1.2) this.loot.scatter(items, victim.pos.x, Math.max(victim.pos.y, this.world.heightAt(victim.pos.x, victim.pos.z)), victim.pos.z, victim.inBuilding, false, this.rng);
+    if (items.length && victim.pos.y > -1.2) {
+      const b = this.world.buildingAt(victim.pos.x, victim.pos.z, victim.pos.y);
+      const up = b >= 0 && victim.pos.y > this.world.buildings[b].y + 2;
+      this.loot.scatter(items, victim.pos.x, Math.max(victim.pos.y, this.world.heightAt(victim.pos.x, victim.pos.z)), victim.pos.z, b, up, this.rng);
+    }
     victim.weapons = [null, null, null];
     victim.active = -1;
     victim.syncModel();

@@ -644,13 +644,15 @@ export class World {
   }
 
   /** index of the building whose footprint contains the point, or -1 */
-  buildingAt(x: number, z: number): number {
+  buildingAt(x: number, z: number, y?: number): number {
     const bs = this.buildings;
     for (let i = 0; i < bs.length; i++) {
       const b = bs[i];
       const dx = x - b.x;
       const dz = z - b.z;
       if (dx * dx + dz * dz > 160) continue;
+      // standing on the roof is not being inside
+      if (y !== undefined && y > b.y + (ROOF_HEIGHT[b.kind] ?? 3) - 0.3) continue;
       const lx = dx * b.cos - dz * b.sin;
       const lz = dx * b.sin + dz * b.cos;
       if (Math.abs(lx) <= b.hx && Math.abs(lz) <= b.hz) return i;
@@ -819,3 +821,4 @@ export class World {
 }
 
 const _n = new THREE.Vector3();
+const ROOF_HEIGHT: Record<string, number> = { house: 3.0, house2: 5.95, shack: 2.45, shop: 3.5, warehouse: 5.5, bunker: 2.75 };

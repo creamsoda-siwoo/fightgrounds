@@ -146,7 +146,9 @@ export default function HudCanvas({ game, showMap }: { game: Game; showMap: bool
   const mini = useRef<HTMLCanvasElement>(null);
   const big = useRef<HTMLCanvasElement>(null);
   const mapOpen = useRef(showMap);
-  mapOpen.current = showMap;
+  useEffect(() => {
+    mapOpen.current = showMap;
+  }, [showMap]);
 
   useEffect(() => {
     let raf = 0;

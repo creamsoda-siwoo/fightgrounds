@@ -169,7 +169,7 @@ export class Loot {
     mesh.matrix.compose(_p.set(x, y + yOff, z), _q, _s.set(scale, scale, scale));
     mesh.matrixAutoUpdate = false;
     mesh.matrixWorldNeedsUpdate = true;
-    mesh.castShadow = true;
+    mesh.castShadow = false;
     mesh.visible = false;
     const li: LootItem = { id: this.nextId++, item, x, y, z, building, upstairs, mesh, alive: true, claim: -1, claimT: 0 };
     this.items.push(li);

@@ -53,6 +53,7 @@ export class Zone {
           float d = distance(uCam, vW);
           float near = 1.0 - smoothstep(30.0, 420.0, d);
           float fadeTop = 1.0 - smoothstep(60.0, 260.0, h);
+          bolt *= near * fadeTop;
           float a = (0.2 + n * 0.42 + grid) * fadeTop * (0.42 + near * 0.58) + bolt * 0.6;
           vec3 col = mix(vec3(0.38, 0.12, 0.95), vec3(0.95, 0.35, 1.0), n) + vec3(1.2, 0.9, 1.4) * bolt;
           gl_FragColor = vec4(col * (1.1 + near * 0.6), clamp(a, 0.0, 0.92));

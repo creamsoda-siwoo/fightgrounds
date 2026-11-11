@@ -205,7 +205,7 @@ export class Bot {
     const ez = c.pos.z;
     const fx = c.fx();
     const fz = c.fz();
-    c.inBuilding = game.world.buildingAt(c.pos.x, c.pos.z);
+    c.inBuilding = game.world.buildingAt(c.pos.x, c.pos.z, c.pos.y);
     let best: Character | null = null;
     let bestScore = 0;
     let targetVisible = false;
@@ -327,10 +327,15 @@ export class Bot {
         }
         return this.setState('combat');
       }
-      this.fleeT = 5;
-      return this.setState('flee');
+      // unarmed: only run from people who can actually shoot back
+      const threat = t.weapons.some((w) => w !== null);
+      if (threat && d < 60) {
+        if (this.state !== 'flee') this.fleeT = 3.5;
+        return this.setState('flee');
+      }
+      if (!threat && d < 5 && this.aggression > 0.6 && t.mode === 'ground') return this.setState('combat');
     }
-    if (this.state === 'flee' && this.fleeT > 0) return;
+    if (this.state === 'flee' && this.fleeT > 0 && t && this.lostT < 2) return;
     const calm = game.time - c.lastHitT > 2.2;
     if (c.hp < 55 && (c.medkits > 0 || c.bandages > 0) && calm && !(outside && zone.dps() > 2)) return this.setState('heal');
     if (c.heal) return;

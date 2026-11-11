@@ -160,7 +160,7 @@ export default function Hud({ game, s }: { game: Game; s: HudState }) {
                 </div>
                 <div className="boost"><i style={{ width: `${s.boost}%` }} /></div>
                 <div className={`hp ${hpClass}`}>
-                  <i style={{ width: `${s.hp}%` }} />
+                  <i style={{ width: `${Math.min(100, s.hp)}%` }} />
                   <span>{s.hp}</span>
                 </div>
               </div>

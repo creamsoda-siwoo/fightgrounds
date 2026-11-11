@@ -170,6 +170,7 @@ export class Player {
     this.scanT -= dt;
     if (this.scanT <= 0) {
       this.scanT = 0.12;
+      c.inBuilding = game.world.buildingAt(c.pos.x, c.pos.z, c.pos.y);
       this.scanLoot();
     }
   }
@@ -356,14 +357,14 @@ export class Player {
         const rx = -Math.cos(this.yaw);
         const rz = Math.sin(this.yaw);
         // keep the shoulder offset out of walls
-        let sh = lerp(0.55, 0.42, this.adsT);
+        let sh = lerp(0.55, 0.66, this.adsT);
         const hx = c.pos.x;
-        const hy = c.pos.y + eye + 0.1;
+        const hy = c.pos.y + eye + 0.1 + this.adsT * 0.1;
         const hz = c.pos.z;
         if (game.world.raycast(hx, hy, hz, rx, 0, rz, sh + 0.25, _hit, false)) sh = Math.max(0, _hit.t - 0.25);
         this.shoulder = lerp(this.shoulder, sh, damp(14, dt));
         _piv.set(hx + rx * this.shoulder, hy, hz + rz * this.shoulder);
-        let want = lerp(c.sprint ? 3.3 : 3.0, 1.45, this.adsT);
+        let want = lerp(c.sprint ? 3.3 : 3.0, 1.35, this.adsT);
         if (c.swimming) want = 3.6;
         if (game.world.raycast(_piv.x, _piv.y, _piv.z, -_f.x, -_f.y, -_f.z, want + 0.3, _hit, false)) want = Math.max(0.3, _hit.t - 0.3);
         // snap in instantly, ease back out

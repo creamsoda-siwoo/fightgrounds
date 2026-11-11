@@ -154,7 +154,7 @@ export function createTextures(size = 512): TextureSet {
   const dirtF = fbmField(N, 8, 6, 71, 0.6);
   const dirt = colorTex(N, (_x, _y, i) => {
     const t = dirtF[i] * 0.7 + fine[i] * 0.3;
-    const c = mix3([0.23, 0.17, 0.11], [0.43, 0.34, 0.23], smoothstep(0.25, 0.75, t));
+    const c = mix3([0.37, 0.3, 0.22], [0.6, 0.51, 0.39], smoothstep(0.25, 0.75, t));
     const pebble = speck[i] > 0.86 ? 1.25 : 1;
     const s = (0.88 + speck[i] * 0.2) * pebble;
     return [c[0] * s, c[1] * s, c[2] * s];
