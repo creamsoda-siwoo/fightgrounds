@@ -391,7 +391,7 @@ vec3 layered(sampler2D t, vec2 p, float farMix){
   c = mix(c, dirt, max(patches, worn * 0.85));
   c = mix(c, rock, rockW);
   c = mix(c, sand, sandW * (1.0 - rockW * 0.6));
-  c = mix(c, dirt * vec3(0.78, 0.76, 0.74), road);
+  c = mix(c, mix(dirt, vec3(dot(dirt, vec3(0.333))), 0.45) * vec3(1.02, 1.0, 0.96), road);
   c *= mix(0.62, 1.0, smoothstep(-0.6, 0.5, h));
   diffuseColor.rgb = c;
 }`,

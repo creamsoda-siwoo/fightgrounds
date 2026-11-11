@@ -27,24 +27,26 @@ export interface QualityPreset {
   viewDistance: number;
   aniso: number;
   textureSize: number;
+  /** distance at which vegetation chunks switch to their low detail mesh */
+  treeLod: number;
 }
 
 export const QUALITY: Record<Quality, QualityPreset> = {
   low: {
     label: '낮음', pixelRatio: 0.75, shadowMap: 1024, shadowRange: 50, msaa: 0, grass: 0, grassRange: 40,
-    bloom: false, treeShadows: false, viewDistance: 1400, aniso: 2, textureSize: 256,
+    bloom: false, treeShadows: false, viewDistance: 1400, aniso: 2, textureSize: 256, treeLod: 0,
   },
   medium: {
     label: '보통', pixelRatio: 1, shadowMap: 2048, shadowRange: 70, msaa: 2, grass: 30000, grassRange: 36,
-    bloom: true, treeShadows: true, viewDistance: 2200, aniso: 4, textureSize: 512,
+    bloom: true, treeShadows: true, viewDistance: 2200, aniso: 4, textureSize: 512, treeLod: 110,
   },
   high: {
-    label: '높음', pixelRatio: 1.25, shadowMap: 4096, shadowRange: 90, msaa: 4, grass: 70000, grassRange: 46,
-    bloom: true, treeShadows: true, viewDistance: 3000, aniso: 8, textureSize: 512,
+    label: '높음', pixelRatio: 1.25, shadowMap: 4096, shadowRange: 90, msaa: 4, grass: 64000, grassRange: 44,
+    bloom: true, treeShadows: true, viewDistance: 3000, aniso: 8, textureSize: 512, treeLod: 180,
   },
   ultra: {
     label: '울트라', pixelRatio: 2, shadowMap: 4096, shadowRange: 110, msaa: 4, grass: 130000, grassRange: 58,
-    bloom: true, treeShadows: true, viewDistance: 3600, aniso: 16, textureSize: 1024,
+    bloom: true, treeShadows: true, viewDistance: 3600, aniso: 16, textureSize: 1024, treeLod: 300,
   },
 };
 

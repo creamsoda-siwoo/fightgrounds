@@ -16,6 +16,7 @@ export class Environment {
   sky: Sky;
   water: THREE.Mesh;
   private waterMat: THREE.ShaderMaterial;
+  private sunSprite!: THREE.Sprite;
   private time = 0;
   private shadowRange: number;
   fogColor = new THREE.Color();
@@ -39,9 +40,40 @@ export class Environment {
     u.cloudDensity.value = 0.52;
     u.cloudElevation.value = 0.55;
     u.cloudScale.value = 0.00022;
+    // the analytic sun disc is thousands of nits and floods the bloom pass;
+    // a sprite with a controlled HDR core gives the same read without it
+    u.showSunDisc.value = 0;
+    // keep the forward-scattering halo from blowing out the whole frame
+    this.sky.material.fragmentShader = this.sky.material.fragmentShader.replace(
+      '#include <tonemapping_fragment>',
+      'gl_FragColor.rgb = gl_FragColor.rgb / (1.0 + max(max(gl_FragColor.r, gl_FragColor.g), gl_FragColor.b) * 0.42);\n#include <tonemapping_fragment>',
+    );
     this.sky.frustumCulled = false;
     this.sky.renderOrder = -10;
     scene.add(this.sky);
+    const sunTex = (() => {
+      const N = 128;
+      const data = new Uint8Array(N * N * 4);
+      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+        const d = Math.hypot(x + 0.5 - N / 2, y + 0.5 - N / 2) / (N / 2);
+        const core = d < 0.16 ? 1 : 0;
+        const halo = Math.pow(Math.max(0, 1 - d), 3.2) * 0.42;
+        const a = Math.min(1, core + halo);
+        const i = (y * N + x) * 4;
+        data[i] = data[i + 1] = data[i + 2] = 255;
+        data[i + 3] = a * 255;
+      }
+      const t = new THREE.DataTexture(data, N, N, THREE.RGBAFormat);
+      t.minFilter = t.magFilter = THREE.LinearFilter;
+      t.needsUpdate = true;
+      return t;
+    })();
+    this.sunSprite = new THREE.Sprite(
+      new THREE.SpriteMaterial({ map: sunTex, color: new THREE.Color(9, 7.6, 5.2), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }),
+    );
+    this.sunSprite.scale.setScalar(300);
+    this.sunSprite.renderOrder = -9;
+    scene.add(this.sunSprite);
 
     // image based lighting from the sky itself
     const pmrem = new THREE.PMREMGenerator(renderer);
@@ -181,6 +213,7 @@ export class Environment {
     this.waterMat.uniforms.uTime.value = this.time;
     this.sky.material.uniforms.time.value = this.time;
     this.sky.position.copy(camera.position);
+    this.sunSprite.position.copy(camera.position).addScaledVector(this.sunDir, 2000);
     this.water.position.x = camera.position.x;
     this.water.position.z = camera.position.z;
 

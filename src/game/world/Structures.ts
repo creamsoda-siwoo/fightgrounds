@@ -85,11 +85,6 @@ function ccyl(c: Ctx, lx: number, lz: number, r: number, y0: number, y1: number,
   const [wx, wz] = toWorld(c, lx, lz);
   c.col.addCyl(wx, wz, r, c.y + y0, c.y + y1, surf);
 }
-/** visible + solid box, y is the centre */
-function sbox(c: Ctx, mat: string, lx: number, ly: number, lz: number, sx: number, sy: number, sz: number, color: number, surf: number, uv = 1): void {
-  c.gb.box(mat, lx, ly, lz, sx, sy, sz, color, { uv });
-  cbox(c, lx, lz, sx, sz, ly - sy / 2, ly + sy / 2, surf);
-}
 function lootAt(c: Ctx, lx: number, ly: number, lz: number, upstairs = false, tierBonus = 0): void {
   const [wx, wz] = toWorld(c, lx, lz);
   c.loot.push({ x: wx, y: c.y + ly, z: wz, building: c.bid, upstairs, tier: c.tier + tierBonus });
