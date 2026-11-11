@@ -14,6 +14,8 @@ export class Input {
   wantFree = false;
   onLockChange: (locked: boolean) => void = () => {};
   sensitivity = 1;
+  /** on-screen controls drive the game; there is no pointer lock on phones */
+  touch = false;
 
   constructor(private el: HTMLElement) {
     window.addEventListener('keydown', this.kd);
@@ -42,6 +44,7 @@ export class Input {
     this.rmb = false;
   };
   private md = (e: MouseEvent): void => {
+    if (this.touch) return;
     if (!this.locked) {
       if (!this.wantFree) this.lock();
       return;
@@ -55,11 +58,12 @@ export class Input {
     }
   };
   private mu = (e: MouseEvent): void => {
+    if (this.touch) return;
     if (e.button === 0) this.lmb = false;
     else if (e.button === 2) this.rmb = false;
   };
   private mm = (e: MouseEvent): void => {
-    if (!this.locked) return;
+    if (!this.locked || this.touch) return;
     // some browsers report a huge delta on the first locked event
     if (Math.abs(e.movementX) > 400 || Math.abs(e.movementY) > 400) return;
     this.mouseDX += e.movementX;
@@ -80,6 +84,11 @@ export class Input {
 
   lock(): void {
     if (this.locked) return;
+    if (this.touch) {
+      this.locked = true;
+      this.onLockChange(true);
+      return;
+    }
     try {
       const p = this.el.requestPointerLock() as unknown as Promise<void> | undefined;
       if (p && typeof p.catch === 'function') p.catch(() => {});
@@ -88,7 +97,43 @@ export class Input {
     }
   }
   unlock(): void {
+    if (this.touch) {
+      if (!this.locked) return;
+      this.locked = false;
+      this.lmb = false;
+      this.rmb = false;
+      this.keys.clear();
+      this.onLockChange(false);
+      return;
+    }
     if (document.pointerLockElement === this.el) document.exitPointerLock();
+  }
+
+  // ---- virtual input used by the touch controls
+  press(code: string): void {
+    if (!this.keys.has(code)) this.pressed.add(code);
+    this.keys.add(code);
+  }
+  release(code: string): void {
+    this.keys.delete(code);
+  }
+  tap(code: string): void {
+    this.pressed.add(code);
+  }
+  look(dx: number, dy: number): void {
+    if (!this.locked) return;
+    this.mouseDX += dx;
+    this.mouseDY += dy;
+  }
+  setFire(on: boolean): void {
+    if (on && !this.lmb) this.lmbPressed = true;
+    this.lmb = on && this.locked;
+  }
+  scroll(dir: number): void {
+    this.wheel += dir;
+  }
+  setAds(on: boolean): void {
+    this.rmb = on && this.locked;
   }
 
   down(code: string): boolean {
