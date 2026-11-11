@@ -20,7 +20,7 @@ npm run dev      # http://localhost:3000
 npm run build    # 프로덕션 빌드
 ```
 
-WebGL2를 지원하는 데스크톱 브라우저(키보드 + 마우스)가 필요합니다. `?quality=low|medium|high|ultra`
+WebGL2를 지원하는 브라우저가 필요합니다. PC는 키보드 + 마우스, 모바일은 가로 화면 터치 조작(이동 스틱 · 드래그 시점 · 액션 버튼)을 지원합니다. `?quality=low|medium|high|ultra`
 쿼리나 로비의 **설정** 탭에서 그래픽 품질을 바꿀 수 있습니다.
 
 ### 온라인 랭킹 (선택)

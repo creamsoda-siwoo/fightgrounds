@@ -7,6 +7,7 @@ import { HudStore } from '@/game/store';
 import EndScreen from './EndScreen';
 import Hud from './Hud';
 import Menu from './Menu';
+import TouchControls from './TouchControls';
 
 const QUALITIES: Quality[] = ['low', 'medium', 'high', 'ultra'];
 
@@ -38,6 +39,7 @@ export default function GameClient() {
   const [sensitivity, setSensitivity] = useState(() => load('fightgrounds.sens', 1));
   const [volume, setVolume] = useState(() => load('fightgrounds.volume', 0.8));
   const [error, setError] = useState('');
+  const [touch] = useState(() => window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window);
   const [matchKey, setMatchKey] = useState(0);
 
   useEffect(() => {
@@ -45,7 +47,8 @@ export default function GameClient() {
     let game: Game | null = null;
     const params = new URLSearchParams(window.location.search);
     const q = params.get('quality') as Quality | null;
-    const quality = q && QUALITIES.includes(q) ? q : load<Quality>('fightgrounds.quality', 'high');
+    const coarse = window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
+    const quality = q && QUALITIES.includes(q) ? q : load<Quality>('fightgrounds.quality', coarse ? 'low' : 'high');
     const sens = load('fightgrounds.sens', 1);
     const vol = load('fightgrounds.volume', 0.8);
     (async () => {
@@ -55,6 +58,7 @@ export default function GameClient() {
         game = new GameClass(canvasRef.current, QUALITIES.includes(quality) ? quality : 'high', store);
         game.manual = params.has('manual');
         game.input.sensitivity = sens;
+        game.input.touch = coarse;
         game.audio.volume = vol;
         gameRef.current = game;
         setGame(game);
@@ -77,13 +81,18 @@ export default function GameClient() {
     if (!g) return;
     save('fightgrounds.name', name);
     setMatchKey((k) => k + 1);
+    if (touch) {
+      // phones: go fullscreen landscape when the browser allows it
+      const el = document.documentElement;
+      el.requestFullscreen?.().then(() => (screen.orientation as unknown as { lock?: (o: string) => Promise<void> }).lock?.('landscape')).catch(() => {});
+    }
     g.startMatch(name);
-  }, [name]);
+  }, [name, touch]);
 
   const live = s.phase === 'flight' || s.phase === 'drop' || s.phase === 'playing' || s.phase === 'dead' || s.phase === 'won';
 
   return (
-    <div className="game-root">
+    <div className={`game-root ${touch ? 'is-touch' : ''}`}>
       <canvas ref={canvasRef} className="game-canvas" />
       {s.phase === 'loading' && !error && (
         <div className="loading">
@@ -128,6 +137,8 @@ export default function GameClient() {
         />
       )}
       {live && game && <Hud game={game} s={s} />}
+      {touch && game && (s.phase === 'flight' || s.phase === 'drop' || s.phase === 'playing') && !s.paused && !s.inventory && <TouchControls game={game} s={s} />}
+      {touch && <div className="rotate-hint">화면을 가로로 돌려 주세요</div>}
       {(s.phase === 'dead' || s.phase === 'won') && s.result && game && (
         <EndScreen key={matchKey} result={s.result} name={name} onAgain={start} onMenu={() => game.toMenu()} />
       )}
