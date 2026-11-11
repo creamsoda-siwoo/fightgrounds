@@ -61,8 +61,8 @@ export class Loot {
   private scratch: LootItem[] = [];
 
   constructor() {
-    const ringGeo = new THREE.RingGeometry(0.2, 0.27, 20).rotateX(-Math.PI / 2);
-    const ringMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: true });
+    const ringGeo = new THREE.RingGeometry(0.21, 0.25, 24).rotateX(-Math.PI / 2);
+    const ringMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: true });
     this.rings = new THREE.InstancedMesh(ringGeo, ringMat, MAX_RINGS);
     this.rings.frustumCulled = false;
     this.rings.count = 0;
@@ -244,7 +244,7 @@ export class Loot {
       for (let i = 0; i < n; i++) {
         const li = this.items[i];
         const rar = itemRarity(li.item);
-        const sc = li.item.kind === 'weapon' ? 1.9 : 1;
+        const sc = li.item.kind === 'weapon' ? 1.5 : 0.9;
         _m.compose(_p.set(li.x, li.y + 0.02, li.z), _q.identity(), _s.set(sc, 1, sc));
         this.rings.setMatrixAt(i, _m);
         this.rings.setColorAt(i, RARITY_COLORS[rar]);

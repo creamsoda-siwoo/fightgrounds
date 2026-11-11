@@ -1,36 +1,82 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# FIGHTGROUNDS
 
-## Getting Started
+브라우저에서 바로 실행되는 **3D 배틀로얄** 게임입니다. 40명(플레이어 1명 + AI 39명)이 수송기에서 강하해
+무기를 줍고, 좁혀 오는 폭풍을 피해 이동하며 마지막 한 명이 남을 때까지 싸웁니다.
 
-First, run the development server:
+Next.js(App Router) + three.js로 만들었고, **모델·텍스처·사운드를 포함한 모든 에셋을 코드로 생성**하기
+때문에 외부 에셋 파일이 하나도 없습니다.
+
+![마을 전경](docs/screenshots/02-town.jpg)
+
+| 교전 | 강하 |
+| --- | --- |
+| ![교전](docs/screenshots/03-firefight.jpg) | ![낙하산](docs/screenshots/04-parachute.jpg) |
+
+## 실행
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev      # http://localhost:3000
+npm run build    # 프로덕션 빌드
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+WebGL2를 지원하는 데스크톱 브라우저(키보드 + 마우스)가 필요합니다. `?quality=low|medium|high|ultra`
+쿼리나 로비의 **설정** 탭에서 그래픽 품질을 바꿀 수 있습니다.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 온라인 랭킹 (선택)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+`.env.example`을 `.env.local`로 복사하고 Supabase 프로젝트 값을 채우면 매치 결과가
+`fightgrounds_matches` 테이블에 기록되고 로비·결과 화면에 랭킹이 표시됩니다.
+환경 변수가 없으면 같은 화면이 브라우저 localStorage 기록으로 동작합니다.
 
-## Learn More
+```
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=...
+```
 
-To learn more about Next.js, take a look at the following resources:
+테이블은 RLS가 켜져 있으며 누구나 읽기 / 정합성 검사를 통과한 결과만 쓰기가 허용됩니다.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## 조작
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+| 키 | 동작 |
+| --- | --- |
+| `W A S D` / 마우스 | 이동 / 시점 |
+| 좌클릭 / 우클릭 | 사격(맨손은 주먹) / 정조준·스코프 |
+| `Shift` / `Space` / `C` | 달리기 / 점프 / 앉기 |
+| `R` / `1 2 3` / 휠 | 재장전 / 무기 교체 |
+| `F` | 강하 · 낙하산 펼치기 · 아이템 줍기 |
+| `4 5 6` / `H` | 구급상자 · 붕대 · 에너지 드링크 / 자동 회복 |
+| `G` | 수류탄 |
+| `Tab` / `M` / `Esc` | 인벤토리 / 전체 지도 / 일시 정지 |
 
-## Deploy on Vercel
+탄약·회복 아이템·더 좋은 방어구·빈 슬롯에 들어갈 무기는 지나가기만 해도 자동으로 줍습니다.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## 게임 구성
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- **섬**: 노이즈 기반 지형(1.28km), 10개 거점(시가지·항구·농장·초소·등대 등), 도로, 부두, 송신탑
+- **건물**: 문·창문이 뚫린 벽, 계단이 있는 2층집, 창고, 벙커, 상점 — 모두 들어갈 수 있고 가구가 배치됨
+- **캐릭터**: 18본 스켈레톤의 스킨드 메시, 2본 IK 기반 절차적 애니메이션(보행·조준·재장전·낙하·수영·사망)
+- **무기 7종**: 권총, SMG, 돌격소총 2종, 산탄총, DMR, 저격소총 + 수류탄, 헬멧/조끼 Lv.1–3, 회복 아이템
+- **AI**: 시야각·가시선·소음 기반 인지, 건물 출입(문·계단) 경로, 루팅 우선순위, 폭풍 회피, 거리별 무기 선택,
+  스킬에 따른 조준 오차·반응 속도·점사, 수류탄, 회복·후퇴 판단
+- **그래픽**: PBR 재질, 대기 산란 하늘과 구름, IBL, 그림자, 바다 셰이더, GPU 인스턴스 잔디,
+  식생 LOD, HDR + 블룸 + 필름 톤매핑 후처리
+- **사운드**: Web Audio API로 합성(총성, 탄착, 발소리, 폭발, 바람, 수송기) — 거리 감쇠·지연·스테레오 패닝
+
+## 코드 구조
+
+```
+src/app            Next.js 엔트리(layout, page, 전역 CSS)
+src/components     React UI — 로비, HUD, 미니맵/나침반 캔버스, 인벤토리, 결과 화면, 랭킹
+src/lib/supabase   랭킹 저장소(Supabase + localStorage 폴백)
+src/game
+  Game.ts          메인 루프, 매치 흐름, HUD 동기화
+  Input.ts store.ts config.ts
+  core/            수학·노이즈, 절차적 지오메트리 빌더, 텍스처 합성
+  world/           지형, 하늘·바다, 식생, 건물·소품, 충돌/레이캐스트, 폭풍
+  entities/        캐릭터 리그·모델, 플레이어 조작/카메라, 봇 AI, 수송기
+  items/           무기·아이템 정의, 루팅
+  combat/          히트스캔 전투·수류탄, 파티클/트레이서/데칼
+  audio/           합성 사운드
+  render/          후처리 파이프라인
+```
