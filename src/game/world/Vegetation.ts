@@ -269,7 +269,9 @@ export class Vegetation {
   private grass: THREE.Mesh | null = null;
   private grassUniforms: { uCam: { value: THREE.Vector3 }; uTime: { value: number } } | null = null;
   treeCount = 0;
-  private chunks: { hi: THREE.InstancedMesh; lo: THREE.InstancedMesh; x: number; z: number }[] = [];
+  private chunks: { hi: THREE.InstancedMesh; lo: THREE.InstancedMesh; x: number; z: number; clutter: boolean }[] = [];
+  private clutterRange: number;
+  private treeRange: number;
   private lodT = 0;
   private lodDist: number;
 
@@ -284,6 +286,8 @@ export class Vegetation {
   ) {
     const rng = mulberry32(9917);
     this.lodDist = q.treeLod;
+    this.clutterRange = q.clutterRange;
+    this.treeRange = q.treeRange;
     const foliageMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86, metalness: 0, map: tex.leaf, normalMap: tex.leafN });
     foliageMat.normalScale.set(0.9, 0.9);
     foliageMat.onBeforeCompile = (shader) => {
@@ -436,7 +440,7 @@ transformed.z += sway * w2 * 0.14;`,
         this.group.add(mesh);
         pair.push(mesh);
       }
-      this.chunks.push({ hi: pair[0], lo: pair[1], x: cx, z: cz });
+      this.chunks.push({ hi: pair[0], lo: pair[1], x: cx, z: cz, clutter: kind.startsWith('bush') });
     }
 
     if (q.grass > 0) this.buildGrass(q, tex);
@@ -573,8 +577,10 @@ vGrassCol = base * (0.8 + aOffset.z * 0.4);`,
       for (const c of this.chunks) {
         const d = Math.hypot(c.x - camPos.x, c.z - camPos.z) + Math.max(0, camPos.y - 60) * 1.5;
         const near = d < far;
-        c.hi.visible = near;
-        c.lo.visible = !near;
+        const flat = Math.hypot(c.x - camPos.x, c.z - camPos.z);
+        const drawn = c.clutter ? d < this.clutterRange : flat < this.treeRange;
+        c.hi.visible = near && drawn;
+        c.lo.visible = !near && drawn;
       }
     }
     if (this.grassUniforms) this.grassUniforms.uCam.value.copy(camPos);

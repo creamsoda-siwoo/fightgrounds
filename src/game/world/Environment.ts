@@ -104,7 +104,7 @@ export class Environment {
     scene.fog = new THREE.FogExp2(this.fogColor, 0.00062);
 
     this.sun = new THREE.DirectionalLight(new THREE.Color(1.0, 0.92, 0.78), 5.2);
-    this.sun.castShadow = true;
+    this.sun.castShadow = q.shadows;
     this.shadowRange = q.shadowRange;
     const sc = this.sun.shadow.camera;
     sc.left = -q.shadowRange;

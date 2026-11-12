@@ -48,7 +48,7 @@ export default function GameClient() {
     const params = new URLSearchParams(window.location.search);
     const q = params.get('quality') as Quality | null;
     const coarse = window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
-    const quality = q && QUALITIES.includes(q) ? q : load<Quality>('fightgrounds.quality', coarse ? 'low' : 'high');
+    const quality = q && QUALITIES.includes(q) ? q : load<Quality>('fightgrounds.quality', coarse ? 'low' : 'medium');
     const sens = load('fightgrounds.sens', 1);
     const vol = load('fightgrounds.volume', 0.8);
     (async () => {

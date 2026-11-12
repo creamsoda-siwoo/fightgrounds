@@ -16,7 +16,9 @@ export type Quality = 'low' | 'medium' | 'high' | 'ultra';
 
 export interface QualityPreset {
   label: string;
-  pixelRatio: number;
+  /** upper bound on the device pixel ratio actually rendered */
+  maxPixelRatio: number;
+  shadows: boolean;
   shadowMap: number;
   shadowRange: number;
   msaa: number;
@@ -29,24 +31,29 @@ export interface QualityPreset {
   textureSize: number;
   /** distance at which vegetation chunks switch to their low detail mesh */
   treeLod: number;
+  /** small props (bushes) are not drawn beyond this */
+  clutterRange: number;
+  lootRange: number;
+  /** trees and rocks are not drawn beyond this horizontal distance */
+  treeRange: number;
 }
 
 export const QUALITY: Record<Quality, QualityPreset> = {
   low: {
-    label: '낮음', pixelRatio: 0.75, shadowMap: 1024, shadowRange: 50, msaa: 0, grass: 0, grassRange: 40,
-    bloom: false, treeShadows: false, viewDistance: 1400, aniso: 2, textureSize: 256, treeLod: 0,
+    label: '낮음', maxPixelRatio: 1, shadows: false, shadowMap: 512, shadowRange: 40, msaa: 0, grass: 0, grassRange: 30,
+    bloom: false, treeShadows: false, viewDistance: 1100, aniso: 1, textureSize: 256, treeLod: 0, clutterRange: 180, lootRange: 45, treeRange: 380,
   },
   medium: {
-    label: '보통', pixelRatio: 1, shadowMap: 2048, shadowRange: 70, msaa: 2, grass: 30000, grassRange: 36,
-    bloom: true, treeShadows: true, viewDistance: 2200, aniso: 4, textureSize: 512, treeLod: 110,
+    label: '보통', maxPixelRatio: 1.25, shadows: true, shadowMap: 1024, shadowRange: 55, msaa: 2, grass: 14000, grassRange: 28,
+    bloom: false, treeShadows: false, viewDistance: 1800, aniso: 4, textureSize: 512, treeLod: 90, clutterRange: 260, lootRange: 60, treeRange: 700,
   },
   high: {
-    label: '높음', pixelRatio: 1.25, shadowMap: 4096, shadowRange: 90, msaa: 4, grass: 64000, grassRange: 44,
-    bloom: true, treeShadows: true, viewDistance: 3000, aniso: 8, textureSize: 512, treeLod: 180,
+    label: '높음', maxPixelRatio: 1.5, shadows: true, shadowMap: 2048, shadowRange: 80, msaa: 2, grass: 40000, grassRange: 40,
+    bloom: true, treeShadows: true, viewDistance: 2600, aniso: 8, textureSize: 512, treeLod: 160, clutterRange: 400, lootRange: 75, treeRange: 5000,
   },
   ultra: {
-    label: '울트라', pixelRatio: 2, shadowMap: 4096, shadowRange: 110, msaa: 4, grass: 130000, grassRange: 58,
-    bloom: true, treeShadows: true, viewDistance: 3600, aniso: 16, textureSize: 1024, treeLod: 300,
+    label: '울트라', maxPixelRatio: 2, shadows: true, shadowMap: 4096, shadowRange: 110, msaa: 4, grass: 100000, grassRange: 55,
+    bloom: true, treeShadows: true, viewDistance: 3600, aniso: 16, textureSize: 1024, treeLod: 300, clutterRange: 900, lootRange: 85, treeRange: 5000,
   },
 };
 
