@@ -27,7 +27,7 @@ function ArmorPip({ label, level, dur }: { label: string; level: number; dur: nu
 
 function Inventory({ game, s }: { game: Game; s: HudState }) {
   return (
-    <div className="inv-backdrop">
+    <div className="inv-backdrop" onClick={(e) => { if (e.target === e.currentTarget) game.setInventory(false); }}>
       <div className="inv">
         <section className="inv-col">
           <h3>주변 아이템</h3>
@@ -80,6 +80,7 @@ function Inventory({ game, s }: { game: Game; s: HudState }) {
           <button className="inv-row" disabled={s.drinks <= 0} onClick={() => game.uiUse('drink')}><span>에너지 드링크 ×{s.drinks}</span><em>6</em></button>
           <div className="inv-row static"><span>파편 수류탄 ×{s.grenades}</span><em>G</em></div>
         </section>
+        <button className="close-x" aria-label="닫기" onClick={() => game.setInventory(false)}>✕</button>
         <p className="inv-hint">Tab 또는 Esc 로 닫기</p>
       </div>
     </div>
@@ -146,7 +147,7 @@ export default function Hud({ game, s }: { game: Game; s: HudState }) {
 
   return (
     <div className={`hud ${ended ? 'ended' : ''}`}>
-      <HudCanvas game={game} showMap={s.map && !ended} />
+      <HudCanvas game={game} showMap={s.map && !ended} onCloseMap={() => game.store.emit({ map: false })} />
 
       {!ended && (
         <>
