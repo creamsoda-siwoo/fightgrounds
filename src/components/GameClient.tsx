@@ -140,7 +140,25 @@ export default function GameClient() {
       {touch && game && (s.phase === 'flight' || s.phase === 'drop' || s.phase === 'playing') && !s.paused && !s.inventory && <TouchControls game={game} s={s} />}
       {touch && <div className="rotate-hint">화면을 가로로 돌려 주세요</div>}
       {(s.phase === 'dead' || s.phase === 'won') && s.result && game && (
-        <EndScreen key={matchKey} result={s.result} name={name} onAgain={start} onMenu={() => game.toMenu()} />
+        <div style={{ display: s.spectating ? 'none' : 'contents' }}>
+          <EndScreen
+            key={matchKey}
+            result={s.result}
+            name={name}
+            onAgain={start}
+            onMenu={() => game.toMenu()}
+            onSpectate={s.phase === 'dead' && s.alive > 1 ? () => game.spectateNext(game.player.lastHitBy) : undefined}
+          />
+        </div>
+      )}
+      {s.phase === 'dead' && s.spectating && game && (
+        <div className="spectate">
+          <span>관전 중</span>
+          <b>{s.spectating}</b>
+          <em>생존 {s.alive}</em>
+          <button className="btn" onClick={() => game.spectateNext()}>다음 생존자</button>
+          <button className="btn primary" onClick={() => game.stopSpectate()}>결과 보기</button>
+        </div>
       )}
       <div id="status" hidden>{error ? `error: ${error}` : s.phase}</div>
     </div>

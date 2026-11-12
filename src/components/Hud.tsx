@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { Game } from '@/game/Game';
+import { QUALITY, type Quality } from '@/game/config';
 import { ARMOR, AMMO_LABEL, type AmmoType } from '@/game/items/defs';
 import type { HudState } from '@/game/store';
 import HudCanvas from './HudCanvas';
@@ -80,6 +81,51 @@ function Inventory({ game, s }: { game: Game; s: HudState }) {
           <div className="inv-row static"><span>파편 수류탄 ×{s.grenades}</span><em>G</em></div>
         </section>
         <p className="inv-hint">Tab 또는 Esc 로 닫기</p>
+      </div>
+    </div>
+  );
+}
+
+function PauseSettings({ game, quality }: { game: Game; quality: Quality }) {
+  const [sens, setSens] = useState(() => game.input.sensitivity);
+  const save = (key: string, v: unknown) => {
+    try {
+      window.localStorage.setItem(key, JSON.stringify(v));
+    } catch {
+      /* storage unavailable */
+    }
+  };
+  return (
+    <div className="pause-settings">
+      <label>
+        <span>마우스 · 터치 감도 <b>{sens.toFixed(2)}</b></span>
+        <input
+          type="range" min={0.3} max={2.5} step={0.05} value={sens}
+          onChange={(e) => {
+            const v = Number(e.target.value);
+            setSens(v);
+            game.setSensitivity(v);
+            save('fightgrounds.sens', v);
+          }}
+        />
+      </label>
+      <span>그래픽 품질 <small>(변경 시 매치를 다시 시작합니다)</small></span>
+      <div className="seg">
+        {(Object.keys(QUALITY) as Quality[]).map((q) => (
+          <button
+            key={q}
+            className={quality === q ? 'on' : ''}
+            onClick={() => {
+              if (q === quality) return;
+              save('fightgrounds.quality', q);
+              const url = new URL(window.location.href);
+              url.searchParams.delete('quality');
+              window.location.href = url.toString();
+            }}
+          >
+            {QUALITY[q].label}
+          </button>
+        ))}
       </div>
     </div>
   );
@@ -205,6 +251,7 @@ export default function Hud({ game, s }: { game: Game; s: HudState }) {
               <div className="pause-card" onClick={(e) => e.stopPropagation()}>
                 <h2>일시 정지</h2>
                 <button className="btn primary" onClick={() => game.resume()}>계속하기</button>
+                <PauseSettings game={game} quality={s.quality} />
                 <button className="btn" onClick={() => game.toMenu()}>로비로 나가기</button>
                 <p>화면을 클릭해도 게임으로 돌아갑니다.</p>
               </div>

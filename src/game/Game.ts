@@ -57,6 +57,8 @@ export class Game {
   manual = false;
   playerName = '플레이어';
   mapCanvas: HTMLCanvasElement | null = null;
+  /** who the camera follows once the player is out */
+  spectate: Character | null = null;
   // high frequency HUD data, read directly by the canvas overlay
   hitT = -9;
   hitHead = false;
@@ -182,6 +184,7 @@ export class Game {
     this.hitT = this.killT = -9;
     this.matchTime = 0;
     this.ended = false;
+    this.spectate = null;
     for (const c of this.chars) {
       c.reset();
       c.pos.copy(this.plane.pos);
@@ -231,6 +234,7 @@ export class Game {
     this.audio.setEngine(0);
     this.audio.setWind(0);
     for (const c of this.chars) c.model.group.visible = false;
+    this.spectate = null;
     this.input.wantFree = true;
     this.input.unlock();
     this.store.emit({ phase: 'menu', paused: false, result: null, inventory: false, map: false });
@@ -352,6 +356,7 @@ export class Game {
       this.audio.ui('kill');
       this.banner(`${victim.name} 처치`, `${this.player.kills} 킬${head ? ' · 헤드샷' : ''} · ${Math.round(dist)}m`, 2.6);
     }
+    if (this.spectate === victim) this.spectateNext(killer);
     if (victim === this.player) this.finish(false, killer && killer !== victim ? killer.name : weapon);
     else if (alive === 1 && this.player.alive) this.finish(true, '');
     if (alive <= 1) {
@@ -404,6 +409,27 @@ export class Game {
   shake(x: number, y: number, z: number, amount: number): void {
     const d = Math.hypot(x - this.camera.position.x, y - this.camera.position.y, z - this.camera.position.z);
     this.ctl.shakeAmp = Math.min(1.2, this.ctl.shakeAmp + amount * clamp(1 - d / 60, 0, 1) * 1.2);
+  }
+
+  /** follow the next living survivor (starting with whoever is given) */
+  spectateNext(prefer?: Character | null): void {
+    const alive = this.chars.filter((c) => c.alive && c !== this.player && c.mode !== 'plane');
+    if (!alive.length) {
+      this.spectate = null;
+      this.store.emit({ spectating: '' });
+      return;
+    }
+    let next = prefer && prefer.alive && prefer !== this.player ? prefer : null;
+    if (!next) {
+      const i = this.spectate ? alive.indexOf(this.spectate) : -1;
+      next = alive[(i + 1) % alive.length];
+    }
+    this.spectate = next;
+    this.store.emit({ spectating: next.name });
+  }
+  stopSpectate(): void {
+    this.spectate = null;
+    this.store.emit({ spectating: '' });
   }
 
   aliveCount(): number {
@@ -468,7 +494,7 @@ export class Game {
     this.hurtFlash = Math.max(0, this.hurtFlash - dt * 1.8);
     u.uDamage.value = live ? this.hurtFlash : 0;
     const hp = this.player ? this.player.hp : 100;
-    u.uLowHp.value = live && this.player.alive ? clamp((32 - hp) / 32, 0, 1) : phase === 'dead' ? 0.8 : 0;
+    u.uLowHp.value = live && this.player.alive ? clamp((32 - hp) / 32, 0, 1) : phase === 'dead' && !this.spectate ? 0.8 : 0;
     u.uScope.value = live && this.ctl.scoped ? 1 : 0;
     const out = live && this.player.alive && this.player.mode === 'ground' && this.zone.state !== 'idle' && !this.zone.inside(this.player.pos.x, this.player.pos.z);
     u.uOutside.value += ((out ? 1 : 0) - u.uOutside.value) * Math.min(1, dt * 4);
@@ -573,14 +599,19 @@ export class Game {
       const d = Math.hypot(c.pos.x - cam.x, c.pos.y - cam.y, c.pos.z - cam.z);
       _sphere.center.set(c.pos.x, c.pos.y + (c.mode === 'chute' ? 3 : 1), c.pos.z);
       _sphere.radius = c.mode === 'chute' ? 5 : 2.2;
+      let step = 1;
       let visible = d < (c.alive ? 900 : 240) && _frustum.intersectsSphere(_sphere);
       if (c === this.player && this.ctl.scoped) visible = false;
       c.model.group.visible = visible;
       if (!visible) c.lod = 2;
       else if (!c.alive && c.deadT > 2) c.lod = 2;
       else if (d < 80 || c === this.player) c.lod = 0;
-      else c.lod = (this.frameN + c.id) % 2 === 0 ? 1 : 2;
-      c.present(c.lod === 1 ? dt * 2 : dt);
+      else {
+        // distant characters animate at a half or a quarter of the frame rate
+        step = d < 200 ? 2 : 4;
+        c.lod = (this.frameN + c.id) % step === 0 ? 1 : 2;
+      }
+      c.present(c.lod === 1 ? dt * step : dt);
     }
   }
 
@@ -671,6 +702,9 @@ export class Game {
 
   // -------------------------------------------------- UI driven actions
 
+  setSensitivity(v: number): void {
+    this.input.sensitivity = v;
+  }
   uiPickup(id: number): void {
     const li = this.loot.items.find((l) => l.id === id);
     if (li && Math.hypot(li.x - this.player.pos.x, li.z - this.player.pos.z) < 3.2) this.ctl.pickup(li, true);

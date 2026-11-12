@@ -427,3 +427,15 @@ button.inv-row:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); }
   .bigmap canvas { height: 92vh; width: 92vh; }
   .bigmap-legend { display: none; }
 }
+
+/* ---------------------------------------------------------- spectate */
+.spectate { position: absolute; left: 50%; bottom: 26px; transform: translateX(-50%); z-index: 6; display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; backdrop-filter: blur(8px); white-space: nowrap; }
+.spectate span { font-size: 11px; letter-spacing: 0.18em; color: var(--muted); font-weight: 700; }
+.spectate b { font-size: 16px; color: var(--amber); }
+.spectate em { font-style: normal; font-size: 12px; color: var(--muted); }
+.spectate .btn { padding: 8px 14px; font-size: 13px; }
+
+.pause-settings { display: flex; flex-direction: column; gap: 8px; text-align: left; font-size: 13px; padding: 10px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); margin: 4px 0; }
+.pause-settings label { display: flex; flex-direction: column; gap: 6px; }
+.pause-settings b { color: var(--amber); margin-left: 4px; }
+.pause-settings small { color: var(--muted); font-size: 11px; }
