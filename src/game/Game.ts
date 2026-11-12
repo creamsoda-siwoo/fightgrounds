@@ -81,6 +81,9 @@ export class Game {
   private ended = false;
   private disposed = false;
   private puffT = 0;
+  /** dynamic resolution: shrinks when the frame rate drops, recovers when it is stable */
+  private resScale = 1;
+  private goodSeconds = 0;
   debugCam: { x: number; y: number; z: number; tx: number; ty: number; tz: number } | null = null;
 
   constructor(private canvas: HTMLCanvasElement, quality: Quality, store: HudStore) {
@@ -88,8 +91,8 @@ export class Game {
     this.store = store;
     const q = QUALITY[quality];
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', stencil: false });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * q.pixelRatio);
-    this.renderer.shadowMap.enabled = true;
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, q.maxPixelRatio));
+    this.renderer.shadowMap.enabled = q.shadows;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 0.5;
@@ -151,7 +154,7 @@ export class Game {
     const w = window.innerWidth;
     const h = window.innerHeight;
     const q = QUALITY[this.quality];
-    const pr = Math.min(window.devicePixelRatio, 2) * q.pixelRatio;
+    const pr = Math.min(window.devicePixelRatio, q.maxPixelRatio) * this.resScale;
     this.renderer.setPixelRatio(pr);
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
@@ -472,6 +475,20 @@ export class Game {
     this.post.render(dt);
 
     if (this.fpsAcc > 1) {
+      const fps = this.fpsN / this.fpsAcc;
+      if (!this.manual && !document.hidden && phase !== 'loading') {
+        if (fps < 44 && this.resScale > 0.5) {
+          this.resScale = Math.max(0.5, this.resScale - (fps < 30 ? 0.15 : 0.08));
+          this.goodSeconds = 0;
+          this.resize();
+        } else if (fps > 57 && this.resScale < 1) {
+          if (++this.goodSeconds >= 5) {
+            this.resScale = Math.min(1, this.resScale + 0.06);
+            this.goodSeconds = 0;
+            this.resize();
+          }
+        } else this.goodSeconds = 0;
+      }
       this.store.set({ fps: Math.round(this.fpsN / this.fpsAcc) });
       this.fpsAcc = 0;
       this.fpsN = 0;
@@ -534,7 +551,7 @@ export class Game {
       }
     }
     this.effects.update(dt);
-    this.loot.update(dt, this.camera.position);
+    this.loot.update(dt, this.camera.position, QUALITY[this.quality].lootRange);
 
     // ambience follows what the player is doing
     const falling = p.mode === 'freefall' ? 1 : p.mode === 'chute' ? 0.45 : 0;

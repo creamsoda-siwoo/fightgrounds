@@ -227,11 +227,11 @@ export class Loot {
     return out;
   }
 
-  update(dt: number, cam: THREE.Vector3): void {
+  update(dt: number, cam: THREE.Vector3, range = 85): void {
     this.visT -= dt;
     if (this.visT <= 0) {
       this.visT = 0.35;
-      const r2 = 85 * 85;
+      const r2 = range * range;
       for (const li of this.items) {
         const dx = li.x - cam.x;
         const dz = li.z - cam.z;
