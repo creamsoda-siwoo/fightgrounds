@@ -104,7 +104,7 @@ function PauseSettings({ game, quality }: { game: Game; quality: Quality }) {
           onChange={(e) => {
             const v = Number(e.target.value);
             setSens(v);
-            game.input.sensitivity = v;
+            game.setSensitivity(v);
             save('fightgrounds.sens', v);
           }}
         />

@@ -702,6 +702,9 @@ export class Game {
 
   // -------------------------------------------------- UI driven actions
 
+  setSensitivity(v: number): void {
+    this.input.sensitivity = v;
+  }
   uiPickup(id: number): void {
     const li = this.loot.items.find((l) => l.id === id);
     if (li && Math.hypot(li.x - this.player.pos.x, li.z - this.player.pos.z) < 3.2) this.ctl.pickup(li, true);
