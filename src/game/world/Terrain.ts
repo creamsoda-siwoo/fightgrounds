@@ -280,7 +280,7 @@ export class Terrain {
     return -1;
   }
 
-  build(tex: TextureSet, aniso: number): THREE.Mesh {
+  build(tex: TextureSet, aniso: number, cheap = false): THREE.Mesh {
     const pos = new Float32Array(N * N * 3);
     const uv = new Float32Array(N * N * 2);
     for (let j = 0; j < N; j++) {
@@ -359,11 +359,11 @@ export class Terrain {
 uniform sampler2D tGrass; uniform sampler2D tDirt; uniform sampler2D tRock; uniform sampler2D tSand;
 uniform sampler2D tSplat; uniform sampler2D tNoise;
 varying vec3 vWPos; varying float vNy;
-vec3 layered(sampler2D t, vec2 p, float farMix){
+${cheap ? 'vec3 layered(sampler2D t, vec2 p, float farMix){ return texture2D(t, p * mix(0.31, 0.043, farMix)).rgb; }' : `vec3 layered(sampler2D t, vec2 p, float farMix){
   vec3 a = texture2D(t, p * 0.31).rgb;
   vec3 b = texture2D(t, p * 0.043).rgb;
   return mix(a, b, farMix) * (0.55 + 0.9 * dot(texture2D(t, p * 0.011).rgb, vec3(0.333)) * 1.6);
-}`,
+}`}`,
         )
         .replace(
           '#include <map_fragment>',

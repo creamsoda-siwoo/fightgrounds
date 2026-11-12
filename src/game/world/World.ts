@@ -136,7 +136,7 @@ export class World {
     this.buildWild(rng);
 
     await progress(0.56, '지형 메시 구축 중');
-    this.group.add(this.terrain.build(this.textures, q.aniso));
+    this.group.add(this.terrain.build(this.textures, q.aniso, !q.shadows));
 
     await progress(0.68, '숲과 초목 배치 중');
     this.vegetation = new Vegetation(this.terrain, this.colliders, this.noise, this.textures, q, (x, z, r) => this.occ.test(x, z, r));

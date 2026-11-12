@@ -9,7 +9,7 @@ function fmt(t: number): string {
   return `${Math.floor(t / 60)}분 ${String(t % 60).padStart(2, '0')}초`;
 }
 
-export default function EndScreen({ result, name, onAgain, onMenu }: { result: MatchResult; name: string; onAgain: () => void; onMenu: () => void }) {
+export default function EndScreen({ result, name, onAgain, onMenu, onSpectate }: { result: MatchResult; name: string; onAgain: () => void; onMenu: () => void; onSpectate?: () => void }) {
   const [saved, setSaved] = useState<'saving' | 'online' | 'local'>('saving');
   const [refresh, setRefresh] = useState(0);
   const sent = useRef(false);
@@ -51,6 +51,7 @@ export default function EndScreen({ result, name, onAgain, onMenu }: { result: M
         </p>
         <div className="end-actions">
           <button className="btn primary big" onClick={onAgain}>다시 강하</button>
+          {onSpectate && <button className="btn" onClick={onSpectate}>관전하기</button>}
           <button className="btn" onClick={onMenu}>로비로</button>
         </div>
       </div>

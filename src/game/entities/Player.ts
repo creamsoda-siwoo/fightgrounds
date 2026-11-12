@@ -30,6 +30,8 @@ export class Player {
   spread = 0;
   private orbit = 0;
   nearList: LootItem[] = [];
+  private specPos = new THREE.Vector3();
+  private specDir = new THREE.Vector3(0, 0, 1);
 
   constructor(private game: Game, public c: Character) {}
 
@@ -334,14 +336,29 @@ export class Player {
       if (cam.position.y < floor) cam.position.y = floor;
       targetFov = c.mode === 'freefall' ? 74 : 68;
     } else if (!c.alive) {
-      // slow orbit around the body
-      const a = this.yaw + this.orbit;
-      const pitch = clamp(this.pitch, -1.2, -0.12);
-      _f.set(Math.sin(a) * Math.cos(pitch), Math.sin(pitch), Math.cos(a) * Math.cos(pitch));
-      _piv.set(c.pos.x, c.pos.y + 1.1, c.pos.z);
-      let dist = 6.5;
-      if (game.world.raycast(_piv.x, _piv.y, _piv.z, -_f.x, -_f.y, -_f.z, dist + 0.3, _hit, false)) dist = Math.max(0.6, _hit.t - 0.3);
-      cam.position.copy(_piv).addScaledVector(_f, -dist);
+      const sp = game.spectate;
+      if (sp) {
+        // over-the-shoulder view of whoever is being watched
+        const pitch = clamp(sp.pitch * 0.6 - 0.12, -0.9, 0.5);
+        _f.set(Math.sin(sp.yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(sp.yaw) * Math.cos(pitch));
+        _piv.set(sp.pos.x - Math.cos(sp.yaw) * 0.45, sp.pos.y + (sp.mode === 'ground' ? sp.eyeHeight() + 0.15 : 1.4), sp.pos.z + Math.sin(sp.yaw) * 0.45);
+        let dist = sp.mode === 'ground' ? 3.4 : 7;
+        if (game.world.raycast(_piv.x, _piv.y, _piv.z, -_f.x, -_f.y, -_f.z, dist + 0.3, _hit, false)) dist = Math.max(0.4, _hit.t - 0.3);
+        this.specPos.copy(_piv).addScaledVector(_f, -dist);
+        if (cam.position.distanceToSquared(this.specPos) > 400) cam.position.copy(this.specPos);
+        else cam.position.lerp(this.specPos, damp(10, dt || 0.016));
+        this.specDir.lerp(_f, damp(8, dt || 0.016)).normalize();
+        _f.copy(this.specDir);
+      } else {
+        // slow orbit around the body
+        const a = this.yaw + this.orbit;
+        const pitch = clamp(this.pitch, -1.2, -0.12);
+        _f.set(Math.sin(a) * Math.cos(pitch), Math.sin(pitch), Math.cos(a) * Math.cos(pitch));
+        _piv.set(c.pos.x, c.pos.y + 1.1, c.pos.z);
+        let dist = 6.5;
+        if (game.world.raycast(_piv.x, _piv.y, _piv.z, -_f.x, -_f.y, -_f.z, dist + 0.3, _hit, false)) dist = Math.max(0.6, _hit.t - 0.3);
+        cam.position.copy(_piv).addScaledVector(_f, -dist);
+      }
     } else {
       const w = c.weapon;
       const zoom = w ? w.def.zoom : 1;

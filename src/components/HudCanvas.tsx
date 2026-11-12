@@ -158,7 +158,7 @@ export default function HudCanvas({ game, showMap }: { game: Game; showMap: bool
       frame++;
       const cv = overlay.current;
       if (!cv) return;
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
       const w = window.innerWidth;
       const h = window.innerHeight;
       if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
@@ -338,7 +338,7 @@ export default function HudCanvas({ game, showMap }: { game: Game; showMap: bool
 
       // ------------------------------------------------------ minimap
       const mc = mini.current;
-      if (mc && frame % 2 === 0 && phase !== 'dead' && phase !== 'won') {
+      if (mc && frame % 4 === 0 && phase !== 'dead' && phase !== 'won') {
         const mg = mc.getContext('2d');
         if (mg) {
           const size = mc.width;
@@ -366,7 +366,7 @@ export default function HudCanvas({ game, showMap }: { game: Game; showMap: bool
     <>
       <canvas ref={overlay} className="hud-overlay" />
       <div className="minimap">
-        <canvas ref={mini} width={440} height={440} />
+        <canvas ref={mini} width={300} height={300} />
         <span className="minimap-n">N</span>
       </div>
       <div className={`bigmap ${showMap ? 'open' : ''}`}>
