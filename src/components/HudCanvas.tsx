@@ -141,7 +141,7 @@ function drawMap(g: CanvasRenderingContext2D, game: Game, size: number, cx: numb
  * so React never re-renders at 60 Hz: crosshair, hit markers, damage
  * direction, compass, minimap and the full-screen map.
  */
-export default function HudCanvas({ game, showMap }: { game: Game; showMap: boolean }) {
+export default function HudCanvas({ game, showMap, onCloseMap }: { game: Game; showMap: boolean; onCloseMap: () => void }) {
   const overlay = useRef<HTMLCanvasElement>(null);
   const mini = useRef<HTMLCanvasElement>(null);
   const big = useRef<HTMLCanvasElement>(null);
@@ -370,6 +370,7 @@ export default function HudCanvas({ game, showMap }: { game: Game; showMap: bool
         <span className="minimap-n">N</span>
       </div>
       <div className={`bigmap ${showMap ? 'open' : ''}`}>
+        <button className="close-x" aria-label="지도 닫기" onClick={onCloseMap}>✕</button>
         <canvas ref={big} width={1024} height={1024} />
         <div className="bigmap-legend">
           <span><i className="dot you" /> 내 위치</span>
