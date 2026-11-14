@@ -67,7 +67,7 @@ h1, h2, h3, p { margin: 0; }
   background: radial-gradient(120% 90% at 50% 0%, #1b2632 0%, #0b0f14 60%);
 }
 .loading h1, .brand h1 {
-  font-size: clamp(44px, 7vw, 96px);
+  font-size: clamp(40px, 5.6vw, 96px);
   font-weight: 900;
   letter-spacing: -0.02em;
   line-height: 0.9;
@@ -446,3 +446,9 @@ button.inv-row:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); }
 .bigmap .close-x { top: 16px; right: 16px; width: 46px; height: 46px; }
 .bigmap.open { pointer-events: auto; z-index: 7; }
 .inv-backdrop { z-index: 7; }
+
+/* ---------------------------------------------------------- difficulty */
+.difficulty { grid-column: 1 / -1; display: flex; align-items: center; gap: 4px; }
+.difficulty span { font-size: 12px; font-weight: 700; letter-spacing: 0.12em; color: var(--muted); margin-right: 8px; }
+.difficulty button { padding: 7px 14px; font-size: 13px; font-weight: 700; border: 1px solid var(--line); background: rgba(8, 11, 15, 0.6); border-radius: 3px; }
+.difficulty button.on { background: var(--amber); color: #20140a; border-color: var(--amber); }

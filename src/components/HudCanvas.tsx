@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import * as THREE from 'three';
 import type { Game } from '@/game/Game';
 import { WORLD_HALF, WORLD_SIZE } from '@/game/config';
 
@@ -56,6 +57,21 @@ function drawMap(g: CanvasRenderingContext2D, game: Game, size: number, cx: numb
       g.stroke();
       g.setLineDash([]);
     }
+  }
+  for (const d of game.airdrops.drops) {
+    const px = toX(d.x);
+    const py = toY(d.z);
+    g.fillStyle = d.landed ? '#ff4a2e' : '#ffb23e';
+    g.strokeStyle = 'rgba(0,0,0,0.85)';
+    g.lineWidth = 2;
+    const s = full ? 7 : 6;
+    g.beginPath();
+    g.rect(px - s, py - s, s * 2, s * 2);
+    g.fill();
+    g.stroke();
+    g.fillStyle = '#fff';
+    g.fillRect(px - s * 0.25, py - s * 0.7, s * 0.5, s * 1.4);
+    g.fillRect(px - s * 0.7, py - s * 0.25, s * 1.4, s * 0.5);
   }
   const plane = game.plane;
   if (plane.active) {
@@ -322,6 +338,27 @@ export default function HudCanvas({ game, showMap, onCloseMap }: { game: Game; s
       // ---------------------------------------------------- hit marker
       const ha = now - game.hitT;
       const ka = now - game.killT;
+      // ------------------------------------------------- damage numbers
+      if (game.damageNumbers.length) {
+        const cam = game.camera;
+        const v = new THREE.Vector3();
+        g.textAlign = 'center';
+        for (const n of game.damageNumbers) {
+          const age = now - n.t;
+          if (age > 1.1 || age < 0) continue;
+          v.set(n.x, n.y + age * 0.9, n.z).project(cam);
+          if (v.z > 1) continue;
+          const sx = (v.x * 0.5 + 0.5) * w;
+          const sy = (-v.y * 0.5 + 0.5) * h;
+          const a = 1 - Math.max(0, age - 0.6) / 0.5;
+          g.font = `800 ${n.head ? 20 : 16}px system-ui, sans-serif`;
+          g.lineWidth = 3;
+          g.strokeStyle = `rgba(0,0,0,${0.75 * a})`;
+          g.strokeText(String(Math.round(n.amount)), sx, sy);
+          g.fillStyle = n.head ? `rgba(255,190,60,${a})` : `rgba(255,255,255,${a})`;
+          g.fillText(String(Math.round(n.amount)), sx, sy);
+        }
+      }
       if (ha < 0.28 || ka < 0.5) {
         const kill = ka < 0.5;
         const t = kill ? ka / 0.5 : ha / 0.28;

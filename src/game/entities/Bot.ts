@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { PLAYER_RADIUS, STEP_HEIGHT, SWIM_DEPTH } from '../config';
+import { DIFFICULTY, PLAYER_RADIUS, STEP_HEIGHT, SWIM_DEPTH } from '../config';
 import { angleDiff, clamp, damp, gauss, rint, rrange, wrapAngle, type Rng } from '../core/math';
 import type { Game } from '../Game';
 import type { LootItem } from '../items/Loot';
@@ -27,6 +27,8 @@ const _list: LootItem[] = [];
 export class Bot {
   state: State = 'loot';
   skill: number;
+  private baseSkill: number;
+  private react = 1;
   aggression: number;
   private rng: Rng;
   private thinkT = 0;
@@ -74,7 +76,8 @@ export class Bot {
 
   constructor(private game: Game, public c: Character, rng: Rng) {
     this.rng = rng;
-    this.skill = clamp(0.28 + rng() * 0.62 + (rng() < 0.12 ? 0.12 : 0), 0.25, 0.97);
+    this.baseSkill = clamp(0.28 + rng() * 0.62 + (rng() < 0.12 ? 0.12 : 0), 0.25, 0.97);
+    this.skill = this.baseSkill;
     this.aggression = clamp(0.2 + rng() * 0.8, 0, 1);
     this.notice = new Float32Array(64);
     this.thinkT = rng() * 0.3;
@@ -82,6 +85,9 @@ export class Bot {
   }
 
   reset(): void {
+    const diff = DIFFICULTY[this.game.difficulty];
+    this.skill = clamp(this.baseSkill * diff.mul + diff.add, 0.15, 0.98);
+    this.react = diff.react;
     this.state = 'loot';
     this.target = null;
     this.visible = false;
@@ -855,7 +861,7 @@ export class Bot {
       return;
     }
     if (!this.visible || c.reloadT >= 0) return;
-    const react = 0.22 + (1 - this.skill) * 0.6;
+    const react = (0.22 + (1 - this.skill) * 0.6) * this.react;
     if (this.seenFor < react) return;
     if (d > Math.min(w.def.falloffEnd, w.def.botRange * 4.5)) return;
     // only pull the trigger when the sights are roughly on target

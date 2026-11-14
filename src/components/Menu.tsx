@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { QUALITY, TOTAL_PLAYERS, type Quality } from '@/game/config';
+import { DIFFICULTY, QUALITY, TOTAL_PLAYERS, type Difficulty, type Quality } from '@/game/config';
 import Leaderboard from './Leaderboard';
 
 const CONTROLS: [string, string][] = [
@@ -31,6 +31,8 @@ interface Props {
   onQuality: (q: Quality) => void;
   onSensitivity: (v: number) => void;
   onVolume: (v: number) => void;
+  difficulty: Difficulty;
+  onDifficulty: (d: Difficulty) => void;
   onStart: () => void;
 }
 
@@ -54,6 +56,12 @@ export default function Menu(p: Props) {
           <label htmlFor="nick">닉네임</label>
           <input id="nick" value={p.name} maxLength={16} autoComplete="off" spellCheck={false} onChange={(e) => p.onName(e.target.value)} placeholder="생존자 이름" />
           <button type="submit" className="btn primary big">매치 시작</button>
+          <div className="difficulty" role="group" aria-label="난이도">
+            <span>AI 난이도</span>
+            {(Object.keys(DIFFICULTY) as Difficulty[]).map((d) => (
+              <button type="button" key={d} className={p.difficulty === d ? 'on' : ''} onClick={() => p.onDifficulty(d)}>{DIFFICULTY[d].label}</button>
+            ))}
+          </div>
           <span className="start-note">PC는 키보드·마우스, 모바일은 화면 터치 조작(가로 화면)</span>
           {p.fps > 0 && p.fps < 26 && p.quality !== 'low' && (
             <span className="start-note warn">현재 {p.fps} FPS — 설정 탭에서 그래픽 품질을 낮추면 더 부드럽게 플레이할 수 있습니다.</span>

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { AudioSys } from './audio/AudioSys';
 import { Combat } from './combat/Combat';
 import { Effects } from './combat/Effects';
-import { QUALITY, TOTAL_PLAYERS, type Quality } from './config';
+import { QUALITY, TOTAL_PLAYERS, type Difficulty, type Quality } from './config';
 import { clamp, mulberry32, rrange, type Rng } from './core/math';
 import { Bot } from './entities/Bot';
 import { Character, type BodyPart } from './entities/Character';
@@ -14,6 +14,7 @@ import { itemLabel, itemRarity } from './items/defs';
 import { Loot } from './items/Loot';
 import { PostFX } from './render/PostFX';
 import { HudStore, type FeedEntry, type SlotInfo } from './store';
+import { Airdrops } from './world/Airdrops';
 import { World } from './world/World';
 import { Zone } from './world/Zone';
 
@@ -61,6 +62,10 @@ export class Game {
   spectate: Character | null = null;
   // high frequency HUD data, read directly by the canvas overlay
   hitT = -9;
+  difficulty: Difficulty = 'normal';
+  airdrops: Airdrops;
+  /** floating damage numbers for hits the player lands */
+  damageNumbers: { x: number; y: number; z: number; amount: number; head: boolean; t: number }[] = [];
   hitHead = false;
   killT = -9;
   damageMarks: DamageMark[] = [];
@@ -102,6 +107,7 @@ export class Game {
     this.camera.far = q.viewDistance + 1200;
     this.input = new Input(canvas);
     this.combat = new Combat(this);
+    this.airdrops = new Airdrops(this);
     this.input.onLockChange = (locked) => {
       const ph = this.store.state.phase;
       const live = ph === 'flight' || ph === 'drop' || ph === 'playing';
@@ -121,7 +127,7 @@ export class Game {
     this.store.emit({ progress: 0.92, progressLabel: '생존자 배치 중' });
     await new Promise((r) => setTimeout(r, 30));
     this.effects = new Effects(this.scene.fog as THREE.FogExp2);
-    this.scene.add(this.effects.group, this.loot.group, this.combat.group, this.zone.mesh, this.plane.group);
+    this.scene.add(this.effects.group, this.airdrops.group, this.loot.group, this.combat.group, this.zone.mesh, this.plane.group);
     for (let i = 0; i < TOTAL_PLAYERS; i++) {
       const isPlayer = i === 0;
       const c = new Character(this, i, isPlayer ? this.playerName : BOT_NAMES[(i - 1) % BOT_NAMES.length], isPlayer, isPlayer ? 0 : 1 + ((i * 5) % (OUTFITS.length - 1)));
@@ -176,6 +182,8 @@ export class Game {
     this.loot.populate(this.world.lootSpots, this.matchSeed);
     this.effects.clear();
     this.combat.clear();
+    this.airdrops.clear();
+    this.damageNumbers.length = 0;
     this.zone.stop();
     this.zone.start(this.world, this.rng);
     this.plane.start(this.rng);
@@ -297,7 +305,10 @@ export class Game {
   // ---------------------------------------------------------- game events
 
   onDamage(victim: Character, from: Character | null, amount: number, part: BodyPart): void {
-    void part;
+    if (from === this.player && victim !== this.player && amount >= 0.5) {
+      this.damageNumbers.push({ x: victim.pos.x, y: victim.pos.y + victim.height + 0.25, z: victim.pos.z, amount, head: part === 'head', t: this.time });
+      if (this.damageNumbers.length > 24) this.damageNumbers.shift();
+    }
     if (victim === this.player) {
       this.hurtFlash = Math.min(1, this.hurtFlash + 0.25 + amount / 60);
       if (amount > 1.5) {
@@ -547,8 +558,16 @@ export class Game {
       this.audio.ui('zone');
       this.banner('폭풍이 좁혀옵니다', '안전 구역으로 이동하세요', 3.5);
     } else if (ev === 'next') {
-      this.banner('새 안전 구역 지정', `${Math.round(this.zone.timer)}초 후 폭풍이 다시 움직입니다`, 3.5);
+      const z = this.zone;
+      // phases 1-3 also bring a supply drop inside the next circle
+      if (z.phase >= 1 && z.phase <= 3 && this.airdrops.spawn(z.nx, z.nz, z.nr, this.rng)) {
+        this.banner('보급품 투하!', '빨간 연기를 따라가면 최고급 장비가 있습니다', 4);
+        this.audio.ui('zone');
+      } else {
+        this.banner('새 안전 구역 지정', `${Math.round(z.timer)}초 후 폭풍이 다시 움직입니다`, 3.5);
+      }
     }
+    this.airdrops.update(dt, this.rng);
 
     this.ctl.update(dt);
     for (const b of this.bots) b.update(dt);
