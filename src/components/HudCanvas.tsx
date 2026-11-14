@@ -58,6 +58,22 @@ function drawMap(g: CanvasRenderingContext2D, game: Game, size: number, cx: numb
       g.setLineDash([]);
     }
   }
+  if (game.ping) {
+    const px = toX(game.ping.x);
+    const py = toY(game.ping.z);
+    const s = full ? 8 : 6;
+    g.fillStyle = '#ffd23e';
+    g.strokeStyle = 'rgba(0,0,0,0.85)';
+    g.lineWidth = 2;
+    g.beginPath();
+    g.moveTo(px, py - s);
+    g.lineTo(px + s, py);
+    g.lineTo(px, py + s);
+    g.lineTo(px - s, py);
+    g.closePath();
+    g.fill();
+    g.stroke();
+  }
   for (const d of game.airdrops.drops) {
     const px = toX(d.x);
     const py = toY(d.z);
@@ -261,6 +277,72 @@ export default function HudCanvas({ game, showMap, onCloseMap }: { game: Game; s
         g.arc(cx, cy, 126, sa - 0.11, sa + 0.11);
         g.stroke();
         g.lineCap = 'butt';
+      }
+
+      // ------------------------------------------- sound direction ticks
+      if (p.alive && p.mode === 'ground' && game.soundMarks.length) {
+        const ring = Math.min(150, h * 0.3);
+        for (const m of game.soundMarks) {
+          const age = now - m.t;
+          const life = m.kind === 'shot' ? 2.2 : 1.1;
+          if (age > life || age < 0) continue;
+          const rel = wrap(m.angle - ctl.yaw - ctl.freeLook);
+          const sa = -Math.PI / 2 - rel;
+          const a = 1 - age / life;
+          const x = cx + Math.cos(sa) * ring;
+          const y = cy + Math.sin(sa) * ring;
+          g.save();
+          g.translate(x, y);
+          g.rotate(sa + Math.PI / 2);
+          if (m.kind === 'shot') {
+            g.fillStyle = `rgba(255, 150, 40, ${0.9 * a})`;
+            g.beginPath();
+            g.moveTo(0, -9);
+            g.lineTo(6, 5);
+            g.lineTo(-6, 5);
+            g.closePath();
+            g.fill();
+          } else {
+            g.fillStyle = `rgba(255, 255, 255, ${0.75 * a})`;
+            g.beginPath();
+            g.ellipse(-3, -2, 2.4, 3.6, 0, 0, TAU);
+            g.ellipse(3, 3, 2.4, 3.6, 0, 0, TAU);
+            g.fill();
+          }
+          g.restore();
+        }
+      }
+
+      // ------------------------------------------------------------ ping
+      if (game.ping && phase !== 'dead' && phase !== 'won') {
+        const pv = new THREE.Vector3(game.ping.x, game.ping.y + 1.2, game.ping.z).project(game.camera);
+        const behind = pv.z > 1;
+        let sx = (pv.x * 0.5 + 0.5) * w;
+        let sy = (-pv.y * 0.5 + 0.5) * h;
+        if (behind) {
+          sx = w - sx;
+          sy = h - 40;
+        }
+        sx = Math.max(24, Math.min(w - 24, sx));
+        sy = Math.max(70, Math.min(h - 40, sy));
+        const d = Math.hypot(game.ping.x - p.pos.x, game.ping.z - p.pos.z);
+        g.fillStyle = '#ffd23e';
+        g.strokeStyle = 'rgba(0,0,0,0.85)';
+        g.lineWidth = 2;
+        g.beginPath();
+        g.moveTo(sx, sy - 10);
+        g.lineTo(sx + 8, sy);
+        g.lineTo(sx, sy + 10);
+        g.lineTo(sx - 8, sy);
+        g.closePath();
+        g.fill();
+        g.stroke();
+        g.font = '700 12px system-ui, sans-serif';
+        g.textAlign = 'center';
+        g.lineWidth = 3;
+        g.strokeText(`${Math.round(d)}m`, sx, sy + 24);
+        g.fillStyle = '#fff';
+        g.fillText(`${Math.round(d)}m`, sx, sy + 24);
       }
 
       // ---------------------------------------------------- crosshair

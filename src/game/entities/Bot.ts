@@ -84,6 +84,12 @@ export class Bot {
     this.percT = rng() * 0.2;
   }
 
+  /** used by the player's autopilot, which ignores the difficulty setting */
+  setSkill(skill: number, react = 0.8): void {
+    this.skill = skill;
+    this.react = react;
+  }
+
   reset(): void {
     const diff = DIFFICULTY[this.game.difficulty];
     this.skill = clamp(this.baseSkill * diff.mul + diff.add, 0.15, 0.98);

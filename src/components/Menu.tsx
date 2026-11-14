@@ -17,6 +17,12 @@ const CONTROLS: [string, string][] = [
   ['1 2 3', '무기 교체'],
   ['4 5 6', '구급상자 · 붕대 · 드링크'],
   ['G', '수류탄 투척'],
+  ['Q / E', '왼쪽 · 오른쪽 기울이기'],
+  ['Alt (누르고 있기)', '자유 시점'],
+  ['B', '연사 · 단발 전환'],
+  ['=', '자동 달리기'],
+  ['휠 클릭', '핑(위치 표시)'],
+  ['P', '오토 플레이 (AI가 대신 플레이)'],
   ['Tab', '인벤토리'],
   ['M', '전체 지도'],
 ];
@@ -32,6 +38,8 @@ interface Props {
   onSensitivity: (v: number) => void;
   onVolume: (v: number) => void;
   difficulty: Difficulty;
+  autoFire: boolean;
+  onAutoFire: (v: boolean) => void;
   onDifficulty: (d: Difficulty) => void;
   onStart: () => void;
 }
@@ -92,6 +100,14 @@ export default function Menu(p: Props) {
                 ))}
               </div>
               <small>품질을 바꾸면 월드를 다시 생성합니다.</small>
+            </div>
+            <div className="setting">
+              <span>자동 사격</span>
+              <div className="seg two">
+                <button className={p.autoFire ? 'on' : ''} onClick={() => p.onAutoFire(true)}>켜기</button>
+                <button className={!p.autoFire ? 'on' : ''} onClick={() => p.onAutoFire(false)}>끄기</button>
+              </div>
+              <small>조준점이 적에게 닿으면 자동으로 사격합니다. 모바일은 기본으로 켜져 있습니다.</small>
             </div>
             <div className="setting">
               <span>마우스 감도 <b>{p.sensitivity.toFixed(2)}</b></span>

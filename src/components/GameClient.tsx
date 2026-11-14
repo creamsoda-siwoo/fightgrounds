@@ -41,6 +41,7 @@ export default function GameClient() {
   const [difficulty, setDifficulty] = useState<Difficulty>(() => load<Difficulty>('fightgrounds.difficulty', 'normal'));
   const [error, setError] = useState('');
   const [touch] = useState(() => window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window);
+  const [autoFire, setAutoFire] = useState(() => load('fightgrounds.autofire', touch));
   const [matchKey, setMatchKey] = useState(0);
 
   useEffect(() => {
@@ -60,6 +61,7 @@ export default function GameClient() {
         game.manual = params.has('manual');
         game.input.sensitivity = sens;
         game.input.touch = coarse;
+        game.setAutoFire(load('fightgrounds.autofire', coarse));
         game.audio.volume = vol;
         gameRef.current = game;
         setGame(game);
@@ -116,6 +118,12 @@ export default function GameClient() {
           quality={s.quality}
           sensitivity={sensitivity}
           difficulty={difficulty}
+          autoFire={autoFire}
+          onAutoFire={(v) => {
+            setAutoFire(v);
+            save('fightgrounds.autofire', v);
+            gameRef.current?.setAutoFire(v);
+          }}
           onDifficulty={(d) => {
             setDifficulty(d);
             save('fightgrounds.difficulty', d);

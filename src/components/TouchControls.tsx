@@ -18,6 +18,8 @@ export default function TouchControls({ game, s }: { game: Game; s: HudState }) 
 
   const setStick = (dx: number, dy: number) => {
     const len = Math.hypot(dx, dy);
+    // drag the stick well past its rim, straight up, to lock running
+    if (dy < -RADIUS * 1.6 && Math.abs(dx) < RADIUS * 0.8) game.setAutoRun(true);
     const k = len > RADIUS ? RADIUS / len : 1;
     dx *= k;
     dy *= k;
@@ -33,6 +35,7 @@ export default function TouchControls({ game, s }: { game: Game; s: HudState }) 
   };
   const stickDown = (e: RPE<HTMLDivElement>) => {
     e.currentTarget.setPointerCapture(e.pointerId);
+    if (s.autoRun) game.setAutoRun(false);
     stick.current = { id: e.pointerId, x: e.clientX, y: e.clientY };
     if (base.current) {
       const r = e.currentTarget.getBoundingClientRect();
@@ -74,6 +77,7 @@ export default function TouchControls({ game, s }: { game: Game; s: HudState }) 
     input.tap(code);
   };
   const ground = s.phase === 'playing';
+  const active = s.active >= 0 ? s.slots[s.active] : null;
 
   return (
     <div className="touch" onContextMenu={(e) => e.preventDefault()}>
@@ -86,13 +90,18 @@ export default function TouchControls({ game, s }: { game: Game; s: HudState }) 
         <button onClick={() => input.unlock()}>Ⅱ</button>
         <button onPointerDown={tap('KeyM')}>지도</button>
         {ground && <button onPointerDown={tap('Tab')}>가방</button>}
+        <button className={s.autoPlay ? 'on' : ''} onClick={() => game.setAutoPlay(!s.autoPlay)}>오토</button>
+        {ground && <button onPointerDown={(e) => { e.stopPropagation(); game.placePing(); }}>핑</button>}
       </div>
 
-      <button className="tb interact" onPointerDown={tap('KeyF')}>
+      {!s.autoPlay && <button className="tb interact" onPointerDown={tap('KeyF')}>
         {s.phase === 'flight' ? '강하' : s.phase === 'drop' ? '낙하산' : '줍기'}
-      </button>
+      </button>}
 
-      {ground && (
+      {ground && !s.autoPlay && active?.mode && (
+        <button className="tb mode" onPointerDown={tap('KeyB')}>{active.mode}</button>
+      )}
+      {ground && !s.autoPlay && (
         <>
           <button
             className="tb fire"

@@ -9,6 +9,7 @@ export class Input {
   rmb = false;
   private lmbPressed = false;
   private rmbPressed = false;
+  private mmbPressed = false;
   locked = false;
   /** set by the game when the cursor should be free (inventory, map, menus) */
   wantFree = false;
@@ -31,7 +32,7 @@ export class Input {
 
   private kd = (e: KeyboardEvent): void => {
     if (e.target instanceof HTMLInputElement) return;
-    if (['Tab', 'Space', 'KeyF', 'KeyM', 'ArrowUp', 'ArrowDown'].includes(e.code)) e.preventDefault();
+    if (['Tab', 'Space', 'KeyF', 'KeyM', 'ArrowUp', 'ArrowDown', 'AltLeft', 'AltRight'].includes(e.code)) e.preventDefault();
     if (!e.repeat) this.pressed.add(e.code);
     this.keys.add(e.code);
   };
@@ -55,6 +56,9 @@ export class Input {
     } else if (e.button === 2) {
       this.rmb = true;
       this.rmbPressed = true;
+    } else if (e.button === 1) {
+      e.preventDefault();
+      this.mmbPressed = true;
     }
   };
   private mu = (e: MouseEvent): void => {
@@ -146,6 +150,9 @@ export class Input {
   lmbHit(): boolean {
     return this.lmbPressed;
   }
+  mmbHit(): boolean {
+    return this.mmbPressed;
+  }
   rmbHit(): boolean {
     return this.rmbPressed;
   }
@@ -156,6 +163,7 @@ export class Input {
     this.wheel = 0;
     this.lmbPressed = false;
     this.rmbPressed = false;
+    this.mmbPressed = false;
   }
   dispose(): void {
     window.removeEventListener('keydown', this.kd);

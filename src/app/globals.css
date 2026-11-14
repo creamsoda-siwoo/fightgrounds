@@ -477,3 +477,21 @@ button.inv-row:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); }
   .is-touch .ammo span { font-size: 12px; }
   .is-touch .ammo em { font-size: 11px; margin-left: 4px; }
 }
+
+/* ------------------------------------------------- v1.2 auto & fps aids */
+.seg.two { grid-template-columns: repeat(2, 1fr); }
+.fire-mode { margin-left: 8px; padding: 2px 7px; font-size: 11px; font-weight: 800; letter-spacing: 0.08em; color: #20140a; background: var(--amber); border-radius: 3px; }
+.auto-badges { position: absolute; top: 112px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; }
+.auto-badge { padding: 6px 12px; font-size: 13px; font-weight: 800; background: rgba(40, 110, 220, 0.82); border: 1px solid rgba(160, 200, 255, 0.8); border-radius: 4px; white-space: nowrap; }
+.auto-badge.play { background: rgba(120, 60, 220, 0.85); border-color: rgba(214, 170, 255, 0.85); animation: pulse 1.6s ease-in-out infinite; }
+.auto-badge em { font-style: normal; font-weight: 500; font-size: 11px; opacity: 0.85; margin-left: 6px; }
+.touch-top button.on { background: rgba(120, 60, 220, 0.85); border-color: rgba(214, 170, 255, 0.9); }
+.tb.mode { left: 16px; top: 168px; width: auto; height: 28px; padding: 0 12px; border-radius: 14px; font-size: 12px; }
+@media (max-height: 520px) {
+  .is-touch .touch-top { gap: 4px; }
+  .is-touch .touch-top button { height: 30px; padding: 0 9px; font-size: 11px; }
+  .is-touch .tb.mode { left: 12px; right: auto; top: 150px; bottom: auto; width: auto; height: 24px; padding: 0 10px; border-radius: 12px; font-size: 11px; }
+  .is-touch .auto-badges { top: auto; bottom: 90px; }
+  .is-touch .auto-badge { font-size: 11px; padding: 4px 9px; }
+  .is-touch .auto-badge em { display: none; }
+}

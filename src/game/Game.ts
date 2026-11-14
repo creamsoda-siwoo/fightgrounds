@@ -34,6 +34,7 @@ export interface DamageMark {
 const _frustum = new THREE.Frustum();
 const _pm = new THREE.Matrix4();
 const _sphere = new THREE.Sphere();
+const _dir = new THREE.Vector3();
 
 export class Game {
   renderer: THREE.WebGLRenderer;
@@ -63,6 +64,15 @@ export class Game {
   // high frequency HUD data, read directly by the canvas overlay
   hitT = -9;
   difficulty: Difficulty = 'normal';
+  /** fire automatically while the crosshair rests on an enemy */
+  autoFire = false;
+  /** the player's character is driven by the bot AI */
+  autoPlay = false;
+  playerBot: Bot | null = null;
+  /** map marker placed with the middle mouse button / ping button */
+  ping: { x: number; y: number; z: number; t: number } | null = null;
+  /** nearby footsteps and gunshots, shown as direction ticks around the crosshair */
+  soundMarks: { angle: number; kind: 'step' | 'shot'; t: number }[] = [];
   airdrops: Airdrops;
   /** floating damage numbers for hits the player lands */
   damageNumbers: { x: number; y: number; z: number; amount: number; head: boolean; t: number }[] = [];
@@ -136,6 +146,7 @@ export class Game {
       if (isPlayer) {
         this.player = c;
         this.ctl = new Player(this, c);
+        this.playerBot = new Bot(this, c, mulberry32(4242));
       } else {
         this.bots.push(new Bot(this, c, mulberry32(977 + i * 131)));
       }
@@ -198,33 +209,12 @@ export class Game {
       c.pos.copy(this.plane.pos);
     }
     // every bot picks somewhere to land that the flight path can reach
-    const sites = this.world.sites;
     for (const b of this.bots) {
       b.reset();
-      let tx = 0;
-      let tz = 0;
-      let at = 0.5;
-      for (let k = 0; k < 10; k++) {
-        if (this.rng() < 0.82) {
-          const s = sites[Math.floor(this.rng() * sites.length)];
-          const a = this.rng() * Math.PI * 2;
-          const r = Math.sqrt(this.rng()) * s.radius * 0.8;
-          tx = s.x + Math.cos(a) * r;
-          tz = s.z + Math.sin(a) * r;
-        } else {
-          const a = this.rng() * Math.PI * 2;
-          const r = Math.sqrt(this.rng()) * 420;
-          tx = Math.cos(a) * r;
-          tz = Math.sin(a) * r;
-        }
-        const cl = this.plane.closest(tx, tz);
-        at = cl.t;
-        if (cl.miss < 330 && cl.t > 0.1 && cl.t < 0.9 && this.world.heightAt(tx, tz) > 1) break;
-      }
-      b.dropX = tx;
-      b.dropZ = tz;
-      b.jumpAt = clamp(at - 0.03 + rrange(this.rng, -0.02, 0.02), 0.08, 0.9);
+      this.planDrop(b, 0.1);
     }
+    this.soundMarks.length = 0;
+    this.ping = null;
     this.ctl.reset();
     this.ctl.yaw = Math.atan2(this.plane.dir.x, this.plane.dir.z);
     this.input.wantFree = false;
@@ -234,6 +224,92 @@ export class Game {
       banner: '강하 지점을 선택하세요', bannerSub: 'F 키로 수송기에서 뛰어내립니다', bannerT: 1, prompt: '', hp: 100, boost: 0, near: [], spectating: '',
     });
     this.bannerT = 5;
+  }
+
+  /** pick a landing spot the aircraft still passes over */
+  private planDrop(b: Bot, minT: number): void {
+    const sites = this.world.sites;
+    let tx = 0;
+    let tz = 0;
+    let at = 0.5;
+    for (let k = 0; k < 12; k++) {
+      if (this.rng() < 0.82) {
+        const s = sites[Math.floor(this.rng() * sites.length)];
+        const a = this.rng() * Math.PI * 2;
+        const r = Math.sqrt(this.rng()) * s.radius * 0.8;
+        tx = s.x + Math.cos(a) * r;
+        tz = s.z + Math.sin(a) * r;
+      } else {
+        const a = this.rng() * Math.PI * 2;
+        const r = Math.sqrt(this.rng()) * 420;
+        tx = Math.cos(a) * r;
+        tz = Math.sin(a) * r;
+      }
+      const cl = this.plane.closest(tx, tz);
+      at = cl.t;
+      if (cl.miss < 330 && cl.t > minT && cl.t < 0.9 && this.world.heightAt(tx, tz) > 1) break;
+    }
+    b.dropX = tx;
+    b.dropZ = tz;
+    b.jumpAt = clamp(at - 0.03 + rrange(this.rng, -0.02, 0.02), minT, 0.9);
+  }
+
+  /** hand the player's character to the AI, or take it back */
+  setAutoPlay(on: boolean): void {
+    const p = this.player;
+    const b = this.playerBot;
+    if (!p || !b || on === this.autoPlay) return;
+    const live = this.store.state.phase === 'flight' || this.store.state.phase === 'drop' || this.store.state.phase === 'playing';
+    if (on && (!live || !p.alive)) return;
+    this.autoPlay = on;
+    p.ads = false;
+    p.sprint = false;
+    if (on) {
+      b.reset();
+      b.setSkill(0.82);
+      b.aggression = 0.6;
+      if (p.mode === 'plane') this.planDrop(b, this.plane.progress + 0.02);
+      this.ctl.autoRun = false;
+    } else {
+      // take over facing wherever the AI was looking
+      this.ctl.yaw = p.yaw;
+      this.ctl.pitch = clamp(p.pitch, -1.2, 1.2);
+      p.crouch = false;
+      p.cancelHeal();
+    }
+    this.audio.ui('click');
+    this.store.emit({ autoPlay: on, autoRun: false });
+    this.banner(on ? '오토 플레이 켜짐' : '오토 플레이 꺼짐', on ? 'AI가 대신 루팅·이동·교전합니다' : '직접 조작으로 돌아왔습니다', 2);
+  }
+
+  setAutoRun(on: boolean): void {
+    if (this.ctl.autoRun === on) return;
+    this.ctl.autoRun = on;
+    this.store.emit({ autoRun: on });
+  }
+  setAutoFire(on: boolean): void {
+    this.autoFire = on;
+  }
+
+  /** drop a marker where the crosshair points (or clear it when pinging the same spot) */
+  placePing(): void {
+    const cam = this.camera;
+    cam.getWorldDirection(_dir);
+    const hit = { t: 0, nx: 0, ny: 1, nz: 0, surf: 0, x: 0, y: 0, z: 0 };
+    if (!this.world.raycast(cam.position.x, cam.position.y, cam.position.z, _dir.x, _dir.y, _dir.z, 900, hit)) return;
+    if (this.ping && Math.hypot(this.ping.x - hit.x, this.ping.z - hit.z) < 4) this.ping = null;
+    else this.ping = { x: hit.x, y: hit.y, z: hit.z, t: this.time };
+    this.audio.ui('click');
+  }
+
+  /** remember where a sound came from so the HUD can point at it */
+  soundCue(x: number, z: number, kind: 'step' | 'shot', range: number): void {
+    const p = this.player;
+    if (!p || !p.alive || p.mode !== 'ground') return;
+    const d = Math.hypot(x - p.pos.x, z - p.pos.z);
+    if (d > range || d < 2) return;
+    this.soundMarks.push({ angle: Math.atan2(x - p.pos.x, z - p.pos.z), kind, t: this.time });
+    if (this.soundMarks.length > 16) this.soundMarks.shift();
   }
 
   toMenu(): void {
@@ -297,6 +373,11 @@ export class Game {
     this.bannerT = dur;
     this.store.emit({ banner: text, bannerSub: sub, bannerT: this.time });
   }
+  /** short status line under the crosshair */
+  notify(text: string): void {
+    this.toastT = 1.6;
+    this.store.set({ action: text, actionProgress: -1 });
+  }
   pickupToast(label: string): void {
     this.toastT = 1.6;
     this.store.set({ action: `획득: ${label}`, actionProgress: -1 });
@@ -320,6 +401,7 @@ export class Game {
         this.damageMarks.push({ angle, t: this.time });
         if (this.damageMarks.length > 6) this.damageMarks.shift();
       }
+      if (this.autoPlay && from) this.playerBot?.onHit(from);
     } else if (from) {
       this.bots[victim.id - 1]?.onHit(from);
     }
@@ -368,6 +450,10 @@ export class Game {
       this.banner(`${victim.name} 처치`, `${this.player.kills} 킬${head ? ' · 헤드샷' : ''} · ${Math.round(dist)}m`, 2.6);
     }
     if (this.spectate === victim) this.spectateNext(killer);
+    if (victim === this.player && this.autoPlay) {
+      this.autoPlay = false;
+      this.store.emit({ autoPlay: false });
+    }
     if (victim === this.player) this.finish(false, killer && killer !== victim ? killer.name : weapon);
     else if (alive === 1 && this.player.alive) this.finish(true, '');
     if (alive <= 1) {
@@ -415,6 +501,8 @@ export class Game {
 
   noise(x: number, z: number, loud: number, src: Character | null): void {
     for (const b of this.bots) b.onNoise(x, z, loud, src);
+    if (this.autoPlay) this.playerBot?.onNoise(x, z, loud, src);
+    if (src !== this.player) this.soundCue(x, z, 'shot', loud * 0.7);
   }
 
   shake(x: number, y: number, z: number, amount: number): void {
@@ -569,7 +657,9 @@ export class Game {
     }
     this.airdrops.update(dt, this.rng);
 
+    if (input.hit('KeyP') && st.phase !== 'dead' && st.phase !== 'won') this.setAutoPlay(!this.autoPlay);
     this.ctl.update(dt);
+    if (this.autoPlay && this.player.alive) this.playerBot?.update(dt);
     for (const b of this.bots) b.update(dt);
     for (const c of this.chars) c.tick(dt);
     this.combat.update(dt);
@@ -658,9 +748,10 @@ export class Game {
       }
       const reserve = p.ammo[w.def.ammo];
       const name = w.scope > 0 ? `${w.def.name} · ${SCOPES[w.scope].short}` : w.def.name;
-      if (!prev || prev.id !== w.def.id || prev.ammo !== w.ammo || prev.reserve !== reserve || prev.name !== name) {
+      const mode = w.def.auto ? (w.semi ? '단발' : '연사') : '';
+      if (!prev || prev.id !== w.def.id || prev.ammo !== w.ammo || prev.reserve !== reserve || prev.name !== name || prev.mode !== mode) {
         changed = true;
-        slots.push({ id: w.def.id, name, ammo: w.ammo, mag: w.def.mag, reserve });
+        slots.push({ id: w.def.id, name, ammo: w.ammo, mag: w.def.mag, reserve, mode });
       } else slots.push(prev);
     }
     let action = st.action;

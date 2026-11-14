@@ -89,6 +89,7 @@ function Inventory({ game, s }: { game: Game; s: HudState }) {
 
 function PauseSettings({ game, quality }: { game: Game; quality: Quality }) {
   const [sens, setSens] = useState(() => game.input.sensitivity);
+  const [autoFire, setAutoFire] = useState(() => game.autoFire);
   const save = (key: string, v: unknown) => {
     try {
       window.localStorage.setItem(key, JSON.stringify(v));
@@ -110,6 +111,11 @@ function PauseSettings({ game, quality }: { game: Game; quality: Quality }) {
           }}
         />
       </label>
+      <span>자동 사격</span>
+      <div className="seg two">
+        <button className={autoFire ? 'on' : ''} onClick={() => { setAutoFire(true); game.setAutoFire(true); save('fightgrounds.autofire', true); }}>켜기</button>
+        <button className={!autoFire ? 'on' : ''} onClick={() => { setAutoFire(false); game.setAutoFire(false); save('fightgrounds.autofire', false); }}>끄기</button>
+      </div>
       <span>그래픽 품질 <small>(변경 시 매치를 다시 시작합니다)</small></span>
       <div className="seg">
         {(Object.keys(QUALITY) as Quality[]).map((q) => (
@@ -189,7 +195,13 @@ export default function Hud({ game, s }: { game: Game; s: HudState }) {
             </div>
           )}
 
-          {s.prompt && !s.inventory && <div className="prompt">{s.prompt}</div>}
+          {s.prompt && !s.inventory && !s.autoPlay && <div className="prompt">{s.prompt}</div>}
+          {(s.autoPlay || s.autoRun) && (
+            <div className="auto-badges">
+              {s.autoPlay && <span className="auto-badge play">오토 플레이 중 <em>P · 오토 버튼으로 해제</em></span>}
+              {s.autoRun && !s.autoPlay && <span className="auto-badge">자동 달리기 <em>W · S · 스틱으로 해제</em></span>}
+            </div>
+          )}
 
           {s.action && !s.inventory && (
             <div className={`action ${s.actionProgress < 0 ? 'toast' : ''}`}>
@@ -219,6 +231,7 @@ export default function Hud({ game, s }: { game: Game; s: HudState }) {
                       <b className={active.ammo === 0 ? 'empty' : active.ammo <= active.mag * 0.25 ? 'low' : ''}>{active.ammo}</b>
                       <span>/ {active.reserve}</span>
                       <em>{active.name}</em>
+                      {active.mode && <small className="fire-mode">{active.mode}</small>}
                     </>
                   ) : (
                     <em>맨손</em>

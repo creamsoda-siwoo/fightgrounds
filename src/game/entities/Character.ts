@@ -11,6 +11,8 @@ export interface WeaponState {
   ammo: number;
   /** mounted optic (magnification class), 0 = none */
   scope: number;
+  /** automatic guns switched to single fire */
+  semi: boolean;
 }
 
 export type Mode = 'plane' | 'freefall' | 'chute' | 'ground' | 'dead';
@@ -43,6 +45,9 @@ export class Character {
   medkits = 0;
   drinks = 0;
   crouch = false;
+  /** lean around cover: -1 left .. +1 right */
+  peek = 0;
+  private lastCue = -9;
   sprint = false;
   ads = false;
   grounded = false;
@@ -115,6 +120,7 @@ export class Character {
     this.ammo = { '9mm': 0, '5.56': 0, '7.62': 0, '12g': 0 };
     this.grenades = this.bandages = this.medkits = this.drinks = 0;
     this.crouch = this.sprint = this.ads = false;
+    this.peek = 0;
     this.grounded = false;
     this.swimming = false;
     this.fireCd = 0;
@@ -204,6 +210,10 @@ export class Character {
       if (this.stepAcc > stride) {
         this.stepAcc = 0;
         if (!this.crouch || this.isPlayer) this.game.audio.footstep(this.pos.x, this.pos.y, this.pos.z, this.isPlayer, this.onHardFloor);
+        if (!this.isPlayer && !this.crouch && this.game.time - this.lastCue > 0.45) {
+          this.lastCue = this.game.time;
+          this.game.soundCue(this.pos.x, this.pos.z, 'step', 36);
+        }
       }
     }
   }
@@ -377,7 +387,7 @@ export class Character {
             else dropped.push({ kind: 'scope', n: old.scope });
           }
         }
-        this.weapons[slot] = { def, ammo: item.n, scope };
+        this.weapons[slot] = { def, ammo: item.n, scope, semi: false };
         if (this.active < 0 || this.active === slot || (def.kind !== 'pistol' && this.active === 2)) {
           this.active = slot;
           this.reloadT = -1;
@@ -616,6 +626,7 @@ export class Character {
     a.healKind = this.heal ? this.heal.kind : '';
     a.throwing = this.throwT;
     a.punch = this.punchT;
+    a.peek = this.peek;
     a.deadT = this.deadT;
     this.model.update(dt, a);
   }
