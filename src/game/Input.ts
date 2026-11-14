@@ -9,11 +9,15 @@ export class Input {
   rmb = false;
   private lmbPressed = false;
   private rmbPressed = false;
+  private mmbPressed = false;
   locked = false;
   /** set by the game when the cursor should be free (inventory, map, menus) */
   wantFree = false;
   onLockChange: (locked: boolean) => void = () => {};
   sensitivity = 1;
+  /** analog stick from the touch controls, -1..1 (y negative = forward) */
+  stickX = 0;
+  stickY = 0;
   /** on-screen controls drive the game; there is no pointer lock on phones */
   touch = false;
 
@@ -31,7 +35,7 @@ export class Input {
 
   private kd = (e: KeyboardEvent): void => {
     if (e.target instanceof HTMLInputElement) return;
-    if (['Tab', 'Space', 'KeyF', 'KeyM', 'ArrowUp', 'ArrowDown'].includes(e.code)) e.preventDefault();
+    if (['Tab', 'Space', 'KeyF', 'KeyM', 'ArrowUp', 'ArrowDown', 'AltLeft', 'AltRight'].includes(e.code)) e.preventDefault();
     if (!e.repeat) this.pressed.add(e.code);
     this.keys.add(e.code);
   };
@@ -55,6 +59,9 @@ export class Input {
     } else if (e.button === 2) {
       this.rmb = true;
       this.rmbPressed = true;
+    } else if (e.button === 1) {
+      e.preventDefault();
+      this.mmbPressed = true;
     }
   };
   private mu = (e: MouseEvent): void => {
@@ -89,11 +96,21 @@ export class Input {
       this.onLockChange(true);
       return;
     }
+    // raw (unaccelerated) mouse movement where the browser supports it
+    const plain = () => {
+      try {
+        const p = this.el.requestPointerLock() as unknown as Promise<void> | undefined;
+        if (p && typeof p.catch === 'function') p.catch(() => {});
+      } catch {
+        /* pointer lock unavailable */
+      }
+    };
     try {
-      const p = this.el.requestPointerLock() as unknown as Promise<void> | undefined;
-      if (p && typeof p.catch === 'function') p.catch(() => {});
+      const req = this.el.requestPointerLock as unknown as (o?: { unadjustedMovement: boolean }) => Promise<void> | undefined;
+      const p = req.call(this.el, { unadjustedMovement: true });
+      if (p && typeof p.catch === 'function') p.catch(plain);
     } catch {
-      /* pointer lock unavailable */
+      plain();
     }
   }
   unlock(): void {
@@ -103,6 +120,7 @@ export class Input {
       this.lmb = false;
       this.rmb = false;
       this.keys.clear();
+      this.stickX = this.stickY = 0;
       this.onLockChange(false);
       return;
     }
@@ -129,6 +147,19 @@ export class Input {
     if (on && !this.lmb) this.lmbPressed = true;
     this.lmb = on && this.locked;
   }
+  setStick(x: number, y: number): void {
+    this.stickX = x;
+    this.stickY = y;
+  }
+  /** short vibration on phones that support it */
+  buzz(ms: number): void {
+    if (!this.touch) return;
+    try {
+      navigator.vibrate?.(ms);
+    } catch {
+      /* not supported */
+    }
+  }
   scroll(dir: number): void {
     this.wheel += dir;
   }
@@ -146,6 +177,9 @@ export class Input {
   lmbHit(): boolean {
     return this.lmbPressed;
   }
+  mmbHit(): boolean {
+    return this.mmbPressed;
+  }
   rmbHit(): boolean {
     return this.rmbPressed;
   }
@@ -156,6 +190,7 @@ export class Input {
     this.wheel = 0;
     this.lmbPressed = false;
     this.rmbPressed = false;
+    this.mmbPressed = false;
   }
   dispose(): void {
     window.removeEventListener('keydown', this.kd);

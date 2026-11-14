@@ -89,6 +89,7 @@ function Inventory({ game, s }: { game: Game; s: HudState }) {
 
 function PauseSettings({ game, quality }: { game: Game; quality: Quality }) {
   const [sens, setSens] = useState(() => game.input.sensitivity);
+  const [autoFire, setAutoFire] = useState(() => game.autoFire);
   const save = (key: string, v: unknown) => {
     try {
       window.localStorage.setItem(key, JSON.stringify(v));
@@ -110,6 +111,11 @@ function PauseSettings({ game, quality }: { game: Game; quality: Quality }) {
           }}
         />
       </label>
+      <span>자동 사격</span>
+      <div className="seg two">
+        <button className={autoFire ? 'on' : ''} onClick={() => { setAutoFire(true); game.setAutoFire(true); save('fightgrounds.autofire', true); }}>켜기</button>
+        <button className={!autoFire ? 'on' : ''} onClick={() => { setAutoFire(false); game.setAutoFire(false); save('fightgrounds.autofire', false); }}>끄기</button>
+      </div>
       <span>그래픽 품질 <small>(변경 시 매치를 다시 시작합니다)</small></span>
       <div className="seg">
         {(Object.keys(QUALITY) as Quality[]).map((q) => (
@@ -143,7 +149,7 @@ export default function Hud({ game, s }: { game: Game; s: HudState }) {
   const active = s.active >= 0 ? s.slots[s.active] : null;
   const hpClass = s.hp > 60 ? 'ok' : s.hp > 30 ? 'warn' : 'bad';
   const inAir = s.phase === 'flight' || s.phase === 'drop';
-  const feed = s.feed.filter((f) => game.time - f.t < 7);
+  const feed = s.feed.filter((f) => game.time - f.t < 5).slice(-3);
 
   return (
     <div className={`hud ${ended ? 'ended' : ''}`}>
@@ -189,7 +195,13 @@ export default function Hud({ game, s }: { game: Game; s: HudState }) {
             </div>
           )}
 
-          {s.prompt && !s.inventory && <div className="prompt">{s.prompt}</div>}
+          {s.prompt && !s.inventory && !s.autoPlay && <div className="prompt">{s.prompt}</div>}
+          {(s.autoPlay || s.autoRun) && (
+            <div className="auto-badges">
+              {s.autoPlay && <span className="auto-badge play">오토 플레이 중 <em>P · 오토 버튼으로 해제</em></span>}
+              {s.autoRun && !s.autoPlay && <span className="auto-badge">자동 달리기 <em>W · S · 스틱으로 해제</em></span>}
+            </div>
+          )}
 
           {s.action && !s.inventory && (
             <div className={`action ${s.actionProgress < 0 ? 'toast' : ''}`}>
@@ -201,10 +213,12 @@ export default function Hud({ game, s }: { game: Game; s: HudState }) {
           {!inAir && (
             <>
               <div className="vitals">
-                <div className="gear">
-                  <ArmorPip label="헬멧" level={s.helmet} dur={s.helmetDur} />
-                  <ArmorPip label="조끼" level={s.vest} dur={s.vestDur} />
-                </div>
+                {(s.helmet > 0 || s.vest > 0) && (
+                  <div className="gear">
+                    {s.helmet > 0 && <ArmorPip label="헬멧" level={s.helmet} dur={s.helmetDur} />}
+                    {s.vest > 0 && <ArmorPip label="조끼" level={s.vest} dur={s.vestDur} />}
+                  </div>
+                )}
                 <div className="boost"><i style={{ width: `${s.boost}%` }} /></div>
                 <div className={`hp ${hpClass}`}>
                   <i style={{ width: `${Math.min(100, s.hp)}%` }} />
@@ -219,28 +233,35 @@ export default function Hud({ game, s }: { game: Game; s: HudState }) {
                       <b className={active.ammo === 0 ? 'empty' : active.ammo <= active.mag * 0.25 ? 'low' : ''}>{active.ammo}</b>
                       <span>/ {active.reserve}</span>
                       <em>{active.name}</em>
+                      {active.mode && <small className="fire-mode">{active.mode}</small>}
                     </>
                   ) : (
                     <em>맨손</em>
                   )}
                 </div>
-                <div className="slots">
-                  {[0, 1, 2].map((i) => {
-                    const w = s.slots[i];
-                    return (
-                      <div key={i} className={`slot ${s.active === i ? 'active' : ''} ${w ? '' : 'empty'}`}>
-                        <b>{i + 1}</b>
-                        <span>{w ? w.name : '—'}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-                <div className="items">
-                  <div className={s.medkits ? '' : 'none'}><b>4</b><span>구급상자</span><em>{s.medkits}</em></div>
-                  <div className={s.bandages ? '' : 'none'}><b>5</b><span>붕대</span><em>{s.bandages}</em></div>
-                  <div className={s.drinks ? '' : 'none'}><b>6</b><span>드링크</span><em>{s.drinks}</em></div>
-                  <div className={s.grenades ? '' : 'none'}><b>G</b><span>수류탄</span><em>{s.grenades}</em></div>
-                </div>
+                {/* only what you actually carry */}
+                {s.slots.some((w, i) => w && i !== s.active) && (
+                  <div className="slots">
+                    {[0, 1, 2].map((i) => {
+                      const w = s.slots[i];
+                      if (!w) return null;
+                      return (
+                        <div key={i} className={`slot ${s.active === i ? 'active' : ''}`}>
+                          <b>{i + 1}</b>
+                          <span>{w.name}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {(s.medkits > 0 || s.bandages > 0 || s.drinks > 0 || s.grenades > 0) && (
+                  <div className="items">
+                    {s.medkits > 0 && <div><b>4</b><span>구급상자</span><em>{s.medkits}</em></div>}
+                    {s.bandages > 0 && <div><b>5</b><span>붕대</span><em>{s.bandages}</em></div>}
+                    {s.drinks > 0 && <div><b>6</b><span>드링크</span><em>{s.drinks}</em></div>}
+                    {s.grenades > 0 && <div><b>G</b><span>수류탄</span><em>{s.grenades}</em></div>}
+                  </div>
+                )}
               </div>
             </>
           )}
@@ -258,7 +279,6 @@ export default function Hud({ game, s }: { game: Game; s: HudState }) {
               </div>
             </div>
           )}
-          <div className="fps">{s.fps} FPS</div>
         </>
       )}
     </div>

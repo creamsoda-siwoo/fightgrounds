@@ -67,7 +67,7 @@ h1, h2, h3, p { margin: 0; }
   background: radial-gradient(120% 90% at 50% 0%, #1b2632 0%, #0b0f14 60%);
 }
 .loading h1, .brand h1 {
-  font-size: clamp(44px, 7vw, 96px);
+  font-size: clamp(40px, 5.6vw, 96px);
   font-weight: 900;
   letter-spacing: -0.02em;
   line-height: 0.9;
@@ -446,3 +446,65 @@ button.inv-row:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); }
 .bigmap .close-x { top: 16px; right: 16px; width: 46px; height: 46px; }
 .bigmap.open { pointer-events: auto; z-index: 7; }
 .inv-backdrop { z-index: 7; }
+
+/* ---------------------------------------------------------- difficulty */
+.difficulty { grid-column: 1 / -1; display: flex; align-items: center; gap: 4px; }
+.difficulty span { font-size: 12px; font-weight: 700; letter-spacing: 0.12em; color: var(--muted); margin-right: 8px; }
+.difficulty button { padding: 7px 14px; font-size: 13px; font-weight: 700; border: 1px solid var(--line); background: rgba(8, 11, 15, 0.6); border-radius: 3px; }
+.difficulty button.on { background: var(--amber); color: #20140a; border-color: var(--amber); }
+
+/* ------------------------------------------- phone layout, no overlaps */
+.btn { white-space: nowrap; }
+@media (max-height: 520px) {
+  .start { grid-template-columns: minmax(0, 1fr) auto; }
+  .start .btn.big { padding: 0 18px; font-size: 16px; letter-spacing: 0.06em; }
+  .is-touch .minimap { width: 92px; height: 92px; top: 42px; }
+  .is-touch .feed { right: 116px; }
+  /* right thumb cluster */
+  .is-touch .tb { width: 52px; height: 52px; font-size: 11px; }
+  .is-touch .tb.fire { right: 22px; bottom: 64px; width: 80px; height: 80px; }
+  .is-touch .tb.jump { right: 112px; bottom: 150px; }
+  .is-touch .tb.ads { right: 108px; bottom: 82px; }
+  .is-touch .tb.crouch { right: 172px; bottom: 120px; }
+  .is-touch .tb.reload { right: 172px; bottom: 10px; }
+  .is-touch .tb.swap { right: 232px; bottom: 10px; }
+  .is-touch .tb.heal { right: 292px; bottom: 10px; }
+  .is-touch .tb.nade { right: 352px; bottom: 10px; }
+  .is-touch .tb.interact { top: 52%; width: auto; height: 40px; padding: 0 18px; border-radius: 20px; font-size: 13px; white-space: nowrap; }
+  /* ammo moves under the health bar, away from the button row */
+  .is-touch .loadout { left: 12px; right: auto; bottom: auto; top: 118px; transform: none; }
+  .is-touch .ammo b { font-size: 22px; }
+  .is-touch .ammo span { font-size: 12px; }
+  .is-touch .ammo em { font-size: 11px; margin-left: 4px; }
+}
+
+/* ------------------------------------------------- v1.2 auto & fps aids */
+.seg.two { grid-template-columns: repeat(2, 1fr); }
+.fire-mode { margin-left: 8px; padding: 2px 7px; font-size: 11px; font-weight: 800; letter-spacing: 0.08em; color: #20140a; background: var(--amber); border-radius: 3px; }
+.auto-badges { position: absolute; top: 112px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; }
+.auto-badge { padding: 6px 12px; font-size: 13px; font-weight: 800; background: rgba(40, 110, 220, 0.82); border: 1px solid rgba(160, 200, 255, 0.8); border-radius: 4px; white-space: nowrap; }
+.auto-badge.play { background: rgba(120, 60, 220, 0.85); border-color: rgba(214, 170, 255, 0.85); animation: pulse 1.6s ease-in-out infinite; }
+.auto-badge em { font-style: normal; font-weight: 500; font-size: 11px; opacity: 0.85; margin-left: 6px; }
+.touch-top button.on { background: rgba(120, 60, 220, 0.85); border-color: rgba(214, 170, 255, 0.9); }
+.tb.mode { left: 16px; top: 168px; width: auto; height: 28px; padding: 0 12px; border-radius: 14px; font-size: 12px; }
+@media (max-height: 520px) {
+  .is-touch .touch-top { gap: 4px; }
+  .is-touch .touch-top button { height: 30px; padding: 0 9px; font-size: 11px; }
+  .is-touch .tb.mode { left: 12px; right: auto; top: 150px; bottom: auto; width: auto; height: 24px; padding: 0 10px; border-radius: 12px; font-size: 11px; }
+  .is-touch .auto-badges { top: auto; bottom: 90px; }
+  .is-touch .auto-badge { font-size: 11px; padding: 4px 9px; }
+  .is-touch .auto-badge em { display: none; }
+}
+
+/* ------------------------------------------- cleaner touch screen */
+.minimap-hit { display: none; }
+.is-touch .minimap { left: auto; right: 22px; bottom: auto; top: 66px; width: 150px; height: 150px; }
+.is-touch .feed { right: 186px; }
+.touch .minimap-hit { display: block; position: absolute; right: 22px; top: 66px; width: 150px; height: 150px; padding: 0; background: transparent; border: 0; border-radius: 6px; }
+.touch .minimap-hit:active { background: rgba(255, 255, 255, 0.08); }
+@media (max-height: 520px) {
+  .is-touch .minimap { right: 12px; top: 42px; width: 92px; height: 92px; }
+  .is-touch .feed { right: 116px; }
+  .touch .minimap-hit { right: 12px; top: 42px; width: 92px; height: 92px; }
+}
+.is-touch .fire-mode { display: none; }

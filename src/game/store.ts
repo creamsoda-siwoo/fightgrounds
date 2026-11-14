@@ -8,6 +8,8 @@ export interface SlotInfo {
   ammo: number;
   mag: number;
   reserve: number;
+  /** fire mode label for guns that can switch ('연사' / '단발'), '' otherwise */
+  mode: string;
 }
 export interface FeedEntry {
   id: number;
@@ -76,6 +78,8 @@ export interface HudState {
   canJump: boolean;
   spectating: string;
   fps: number;
+  autoPlay: boolean;
+  autoRun: boolean;
 }
 
 type Listener = () => void;
@@ -89,7 +93,7 @@ export class HudStore {
     ammo: { '9mm': 0, '5.56': 0, '7.62': 0, '12g': 0 },
     alive: 0, kills: 0, zoneState: 'idle', zoneTimer: 0, zonePhase: 0, outside: false,
     prompt: '', action: '', actionProgress: 0, feed: [], banner: '', bannerSub: '', bannerT: 0,
-    scoped: false, inventory: false, map: false, near: [], result: null, location: '', canJump: false, spectating: '', fps: 0,
+    scoped: false, inventory: false, map: false, near: [], result: null, location: '', canJump: false, spectating: '', fps: 0, autoPlay: false, autoRun: false,
   };
   private listeners = new Set<Listener>();
   private dirty = false;

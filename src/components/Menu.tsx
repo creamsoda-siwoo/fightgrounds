@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { QUALITY, TOTAL_PLAYERS, type Quality } from '@/game/config';
+import { DIFFICULTY, QUALITY, TOTAL_PLAYERS, type Difficulty, type Quality } from '@/game/config';
 import Leaderboard from './Leaderboard';
 
 const CONTROLS: [string, string][] = [
@@ -17,6 +17,12 @@ const CONTROLS: [string, string][] = [
   ['1 2 3', '무기 교체'],
   ['4 5 6', '구급상자 · 붕대 · 드링크'],
   ['G', '수류탄 투척'],
+  ['Q / E', '왼쪽 · 오른쪽 기울이기'],
+  ['Alt (누르고 있기)', '자유 시점'],
+  ['B', '연사 · 단발 전환'],
+  ['=', '자동 달리기'],
+  ['휠 클릭', '핑(위치 표시)'],
+  ['P', '오토 플레이 (AI가 대신 플레이)'],
   ['Tab', '인벤토리'],
   ['M', '전체 지도'],
 ];
@@ -31,6 +37,10 @@ interface Props {
   onQuality: (q: Quality) => void;
   onSensitivity: (v: number) => void;
   onVolume: (v: number) => void;
+  difficulty: Difficulty;
+  autoFire: boolean;
+  onAutoFire: (v: boolean) => void;
+  onDifficulty: (d: Difficulty) => void;
   onStart: () => void;
 }
 
@@ -54,6 +64,12 @@ export default function Menu(p: Props) {
           <label htmlFor="nick">닉네임</label>
           <input id="nick" value={p.name} maxLength={16} autoComplete="off" spellCheck={false} onChange={(e) => p.onName(e.target.value)} placeholder="생존자 이름" />
           <button type="submit" className="btn primary big">매치 시작</button>
+          <div className="difficulty" role="group" aria-label="난이도">
+            <span>AI 난이도</span>
+            {(Object.keys(DIFFICULTY) as Difficulty[]).map((d) => (
+              <button type="button" key={d} className={p.difficulty === d ? 'on' : ''} onClick={() => p.onDifficulty(d)}>{DIFFICULTY[d].label}</button>
+            ))}
+          </div>
           <span className="start-note">PC는 키보드·마우스, 모바일은 화면 터치 조작(가로 화면)</span>
           {p.fps > 0 && p.fps < 26 && p.quality !== 'low' && (
             <span className="start-note warn">현재 {p.fps} FPS — 설정 탭에서 그래픽 품질을 낮추면 더 부드럽게 플레이할 수 있습니다.</span>
@@ -84,6 +100,14 @@ export default function Menu(p: Props) {
                 ))}
               </div>
               <small>품질을 바꾸면 월드를 다시 생성합니다.</small>
+            </div>
+            <div className="setting">
+              <span>자동 사격</span>
+              <div className="seg two">
+                <button className={p.autoFire ? 'on' : ''} onClick={() => p.onAutoFire(true)}>켜기</button>
+                <button className={!p.autoFire ? 'on' : ''} onClick={() => p.onAutoFire(false)}>끄기</button>
+              </div>
+              <small>조준점이 적에게 닿으면 자동으로 사격합니다. 모바일은 기본으로 켜져 있습니다.</small>
             </div>
             <div className="setting">
               <span>마우스 감도 <b>{p.sensitivity.toFixed(2)}</b></span>

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import * as THREE from 'three';
 import type { Game } from '@/game/Game';
 import { WORLD_HALF, WORLD_SIZE } from '@/game/config';
 
@@ -56,6 +57,37 @@ function drawMap(g: CanvasRenderingContext2D, game: Game, size: number, cx: numb
       g.stroke();
       g.setLineDash([]);
     }
+  }
+  if (game.ping) {
+    const px = toX(game.ping.x);
+    const py = toY(game.ping.z);
+    const s = full ? 8 : 6;
+    g.fillStyle = '#ffd23e';
+    g.strokeStyle = 'rgba(0,0,0,0.85)';
+    g.lineWidth = 2;
+    g.beginPath();
+    g.moveTo(px, py - s);
+    g.lineTo(px + s, py);
+    g.lineTo(px, py + s);
+    g.lineTo(px - s, py);
+    g.closePath();
+    g.fill();
+    g.stroke();
+  }
+  for (const d of game.airdrops.drops) {
+    const px = toX(d.x);
+    const py = toY(d.z);
+    g.fillStyle = d.landed ? '#ff4a2e' : '#ffb23e';
+    g.strokeStyle = 'rgba(0,0,0,0.85)';
+    g.lineWidth = 2;
+    const s = full ? 7 : 6;
+    g.beginPath();
+    g.rect(px - s, py - s, s * 2, s * 2);
+    g.fill();
+    g.stroke();
+    g.fillStyle = '#fff';
+    g.fillRect(px - s * 0.25, py - s * 0.7, s * 0.5, s * 1.4);
+    g.fillRect(px - s * 0.7, py - s * 0.25, s * 1.4, s * 0.5);
   }
   const plane = game.plane;
   if (plane.active) {
@@ -247,6 +279,72 @@ export default function HudCanvas({ game, showMap, onCloseMap }: { game: Game; s
         g.lineCap = 'butt';
       }
 
+      // ------------------------------------------- sound direction ticks
+      if (p.alive && p.mode === 'ground' && game.soundMarks.length) {
+        const ring = Math.min(150, h * 0.3);
+        for (const m of game.soundMarks) {
+          const age = now - m.t;
+          const life = m.kind === 'shot' ? 2.2 : 1.1;
+          if (age > life || age < 0) continue;
+          const rel = wrap(m.angle - ctl.yaw - ctl.freeLook);
+          const sa = -Math.PI / 2 - rel;
+          const a = 1 - age / life;
+          const x = cx + Math.cos(sa) * ring;
+          const y = cy + Math.sin(sa) * ring;
+          g.save();
+          g.translate(x, y);
+          g.rotate(sa + Math.PI / 2);
+          if (m.kind === 'shot') {
+            g.fillStyle = `rgba(255, 150, 40, ${0.9 * a})`;
+            g.beginPath();
+            g.moveTo(0, -9);
+            g.lineTo(6, 5);
+            g.lineTo(-6, 5);
+            g.closePath();
+            g.fill();
+          } else {
+            g.fillStyle = `rgba(255, 255, 255, ${0.75 * a})`;
+            g.beginPath();
+            g.ellipse(-3, -2, 2.4, 3.6, 0, 0, TAU);
+            g.ellipse(3, 3, 2.4, 3.6, 0, 0, TAU);
+            g.fill();
+          }
+          g.restore();
+        }
+      }
+
+      // ------------------------------------------------------------ ping
+      if (game.ping && phase !== 'dead' && phase !== 'won') {
+        const pv = new THREE.Vector3(game.ping.x, game.ping.y + 1.2, game.ping.z).project(game.camera);
+        const behind = pv.z > 1;
+        let sx = (pv.x * 0.5 + 0.5) * w;
+        let sy = (-pv.y * 0.5 + 0.5) * h;
+        if (behind) {
+          sx = w - sx;
+          sy = h - 40;
+        }
+        sx = Math.max(24, Math.min(w - 24, sx));
+        sy = Math.max(70, Math.min(h - 40, sy));
+        const d = Math.hypot(game.ping.x - p.pos.x, game.ping.z - p.pos.z);
+        g.fillStyle = '#ffd23e';
+        g.strokeStyle = 'rgba(0,0,0,0.85)';
+        g.lineWidth = 2;
+        g.beginPath();
+        g.moveTo(sx, sy - 10);
+        g.lineTo(sx + 8, sy);
+        g.lineTo(sx, sy + 10);
+        g.lineTo(sx - 8, sy);
+        g.closePath();
+        g.fill();
+        g.stroke();
+        g.font = '700 12px system-ui, sans-serif';
+        g.textAlign = 'center';
+        g.lineWidth = 3;
+        g.strokeText(`${Math.round(d)}m`, sx, sy + 24);
+        g.fillStyle = '#fff';
+        g.fillText(`${Math.round(d)}m`, sx, sy + 24);
+      }
+
       // ---------------------------------------------------- crosshair
       if (playing && p.mode === 'ground' && !game.store.state.inventory) {
         const tanHalf = Math.tan((game.camera.fov * Math.PI) / 360);
@@ -283,6 +381,32 @@ export default function HudCanvas({ game, showMap, onCloseMap }: { game: Game; s
             g.beginPath();
             g.moveTo(cx - 5, cy + k * 22);
             g.lineTo(cx + 5, cy + k * 22);
+            g.stroke();
+          }
+        } else if (p.weapon && p.ads && p.weapon.scope > 0) {
+          // reflex / low-power optic reticle
+          if (p.weapon.scope === 1) {
+            g.fillStyle = 'rgba(255, 40, 30, 0.35)';
+            g.beginPath();
+            g.arc(cx, cy, 5, 0, TAU);
+            g.fill();
+            g.fillStyle = 'rgba(255, 60, 40, 1)';
+            g.beginPath();
+            g.arc(cx, cy, 2.2, 0, TAU);
+            g.fill();
+          } else {
+            g.strokeStyle = 'rgba(255, 70, 40, 0.95)';
+            g.lineWidth = 2;
+            g.beginPath();
+            g.moveTo(cx - 9, cy + 9);
+            g.lineTo(cx, cy);
+            g.lineTo(cx + 9, cy + 9);
+            g.stroke();
+            g.strokeStyle = 'rgba(0, 0, 0, 0.6)';
+            g.lineWidth = 1;
+            g.beginPath();
+            g.moveTo(cx, cy + 14);
+            g.lineTo(cx, cy + 34);
             g.stroke();
           }
         } else if (p.weapon) {
@@ -322,6 +446,27 @@ export default function HudCanvas({ game, showMap, onCloseMap }: { game: Game; s
       // ---------------------------------------------------- hit marker
       const ha = now - game.hitT;
       const ka = now - game.killT;
+      // ------------------------------------------------- damage numbers
+      if (game.damageNumbers.length) {
+        const cam = game.camera;
+        const v = new THREE.Vector3();
+        g.textAlign = 'center';
+        for (const n of game.damageNumbers) {
+          const age = now - n.t;
+          if (age > 1.1 || age < 0) continue;
+          v.set(n.x, n.y + age * 0.9, n.z).project(cam);
+          if (v.z > 1) continue;
+          const sx = (v.x * 0.5 + 0.5) * w;
+          const sy = (-v.y * 0.5 + 0.5) * h;
+          const a = 1 - Math.max(0, age - 0.6) / 0.5;
+          g.font = `800 ${n.head ? 20 : 16}px system-ui, sans-serif`;
+          g.lineWidth = 3;
+          g.strokeStyle = `rgba(0,0,0,${0.75 * a})`;
+          g.strokeText(String(Math.round(n.amount)), sx, sy);
+          g.fillStyle = n.head ? `rgba(255,190,60,${a})` : `rgba(255,255,255,${a})`;
+          g.fillText(String(Math.round(n.amount)), sx, sy);
+        }
+      }
       if (ha < 0.28 || ka < 0.5) {
         const kill = ka < 0.5;
         const t = kill ? ka / 0.5 : ha / 0.28;

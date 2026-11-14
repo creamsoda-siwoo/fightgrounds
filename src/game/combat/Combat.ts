@@ -99,7 +99,9 @@ export class Combat {
         continue;
       }
       const h = c.swimming ? 1.62 : c.height;
-      const th = raySphere(ox, oy, oz, dx, dy, dz, c.pos.x + c.fx() * 0.04, c.pos.y + h - 0.12, c.pos.z + c.fz() * 0.04, 0.128);
+      const px = -Math.cos(c.yaw) * c.peek * 0.32;
+      const pz = Math.sin(c.yaw) * c.peek * 0.32;
+      const th = raySphere(ox, oy, oz, dx, dy, dz, c.pos.x + c.fx() * 0.04 + px, c.pos.y + h - 0.12 - Math.abs(c.peek) * 0.06, c.pos.z + c.fz() * 0.04 + pz, 0.128);
       if (th >= 0 && th < out.t) {
         out.t = th;
         out.c = c;

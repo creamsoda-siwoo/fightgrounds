@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { Game } from '@/game/Game';
-import type { Quality } from '@/game/config';
+import type { Difficulty, Quality } from '@/game/config';
 import { HudStore } from '@/game/store';
 import EndScreen from './EndScreen';
 import Hud from './Hud';
@@ -38,8 +38,10 @@ export default function GameClient() {
   const [name, setName] = useState(() => load('fightgrounds.name', ''));
   const [sensitivity, setSensitivity] = useState(() => load('fightgrounds.sens', 1));
   const [volume, setVolume] = useState(() => load('fightgrounds.volume', 0.8));
+  const [difficulty, setDifficulty] = useState<Difficulty>(() => load<Difficulty>('fightgrounds.difficulty', 'normal'));
   const [error, setError] = useState('');
   const [touch] = useState(() => window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window);
+  const [autoFire, setAutoFire] = useState(() => load('fightgrounds.autofire', touch));
   const [matchKey, setMatchKey] = useState(0);
 
   useEffect(() => {
@@ -59,6 +61,7 @@ export default function GameClient() {
         game.manual = params.has('manual');
         game.input.sensitivity = sens;
         game.input.touch = coarse;
+        game.setAutoFire(load('fightgrounds.autofire', coarse));
         game.audio.volume = vol;
         gameRef.current = game;
         setGame(game);
@@ -86,8 +89,9 @@ export default function GameClient() {
       const el = document.documentElement;
       el.requestFullscreen?.().then(() => (screen.orientation as unknown as { lock?: (o: string) => Promise<void> }).lock?.('landscape')).catch(() => {});
     }
+    g.difficulty = difficulty;
     g.startMatch(name);
-  }, [name, touch]);
+  }, [name, touch, difficulty]);
 
   const live = s.phase === 'flight' || s.phase === 'drop' || s.phase === 'playing' || s.phase === 'dead' || s.phase === 'won';
 
@@ -113,6 +117,17 @@ export default function GameClient() {
           name={name}
           quality={s.quality}
           sensitivity={sensitivity}
+          difficulty={difficulty}
+          autoFire={autoFire}
+          onAutoFire={(v) => {
+            setAutoFire(v);
+            save('fightgrounds.autofire', v);
+            gameRef.current?.setAutoFire(v);
+          }}
+          onDifficulty={(d) => {
+            setDifficulty(d);
+            save('fightgrounds.difficulty', d);
+          }}
           volume={volume}
           fps={s.fps}
           onName={setName}

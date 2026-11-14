@@ -12,6 +12,15 @@ export const GRAVITY = 13;
 export const JUMP_SPEED = 4.9;
 export const SWIM_DEPTH = 1.25;
 
+export type Difficulty = 'easy' | 'normal' | 'hard';
+
+/** bot skill = clamp(base * mul + add); react scales how long they take to open fire */
+export const DIFFICULTY: Record<Difficulty, { label: string; mul: number; add: number; react: number }> = {
+  easy: { label: '쉬움', mul: 0.7, add: -0.05, react: 1.6 },
+  normal: { label: '보통', mul: 1, add: 0, react: 1 },
+  hard: { label: '어려움', mul: 1.1, add: 0.12, react: 0.7 },
+};
+
 export type Quality = 'low' | 'medium' | 'high' | 'ultra';
 
 export interface QualityPreset {
