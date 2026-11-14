@@ -301,6 +301,32 @@ export default function HudCanvas({ game, showMap, onCloseMap }: { game: Game; s
             g.lineTo(cx + 5, cy + k * 22);
             g.stroke();
           }
+        } else if (p.weapon && p.ads && p.weapon.scope > 0) {
+          // reflex / low-power optic reticle
+          if (p.weapon.scope === 1) {
+            g.fillStyle = 'rgba(255, 40, 30, 0.35)';
+            g.beginPath();
+            g.arc(cx, cy, 5, 0, TAU);
+            g.fill();
+            g.fillStyle = 'rgba(255, 60, 40, 1)';
+            g.beginPath();
+            g.arc(cx, cy, 2.2, 0, TAU);
+            g.fill();
+          } else {
+            g.strokeStyle = 'rgba(255, 70, 40, 0.95)';
+            g.lineWidth = 2;
+            g.beginPath();
+            g.moveTo(cx - 9, cy + 9);
+            g.lineTo(cx, cy);
+            g.lineTo(cx + 9, cy + 9);
+            g.stroke();
+            g.strokeStyle = 'rgba(0, 0, 0, 0.6)';
+            g.lineWidth = 1;
+            g.beginPath();
+            g.moveTo(cx, cy + 14);
+            g.lineTo(cx, cy + 34);
+            g.stroke();
+          }
         } else if (p.weapon) {
           const gap = 4 + (Math.tan(ctl.spread) / tanHalf) * (h / 2);
           const len = p.ads ? 5 : 9;

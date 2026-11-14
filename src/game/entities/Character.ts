@@ -2,13 +2,15 @@ import * as THREE from 'three';
 import { CROUCH_HEIGHT, GRAVITY, JUMP_SPEED, PLAYER_RADIUS, STAND_HEIGHT, STEP_HEIGHT, SWIM_DEPTH, WORLD_HALF } from '../config';
 import { clamp, damp } from '../core/math';
 import type { Game } from '../Game';
-import { AMMO_MAX, ARMOR, HEAL, WEAPONS, type AmmoType, type Item, type WeaponDef } from '../items/defs';
+import { AMMO_MAX, ARMOR, HEAL, SCOPES, WEAPONS, canMountScope, weaponZoom, type AmmoType, type Item, type WeaponDef } from '../items/defs';
 import type { MoveResult } from '../world/Colliders';
 import { CharacterModel, defaultAnim, type AnimInput } from './CharacterModel';
 
 export interface WeaponState {
   def: WeaponDef;
   ammo: number;
+  /** mounted optic (magnification class), 0 = none */
+  scope: number;
 }
 
 export type Mode = 'plane' | 'freefall' | 'chute' | 'ground' | 'dead';
@@ -366,8 +368,16 @@ export class Character {
         else if (!this.weapons[1]) slot = 1;
         else slot = this.active === 0 || this.active === 1 ? this.active : 0;
         const old = this.weapons[slot];
-        if (old) dropped.push({ kind: 'weapon', sub: old.def.id, n: old.ammo });
-        this.weapons[slot] = { def, ammo: item.n };
+        let scope = 0;
+        if (old) {
+          dropped.push({ kind: 'weapon', sub: old.def.id, n: old.ammo });
+          // the optic stays with you when it fits the new gun
+          if (old.scope > 0) {
+            if (canMountScope(def)) scope = old.scope;
+            else dropped.push({ kind: 'scope', n: old.scope });
+          }
+        }
+        this.weapons[slot] = { def, ammo: item.n, scope };
         if (this.active < 0 || this.active === slot || (def.kind !== 'pistol' && this.active === 2)) {
           this.active = slot;
           this.reloadT = -1;
@@ -416,9 +426,36 @@ export class Character {
         if (this.grenades >= 4) return null;
         this.grenades += 1;
         break;
+      case 'scope': {
+        const slot = this.scopeTarget(item.n);
+        if (slot < 0) return null;
+        const w = this.weapons[slot]!;
+        if (w.scope > 0) dropped.push({ kind: 'scope', n: w.scope });
+        w.scope = item.n;
+        break;
+      }
     }
     this.syncModel();
     return dropped;
+  }
+
+  /** primary slot an optic of this class would improve (active weapon first), or -1 */
+  scopeTarget(mag: number): number {
+    const order = this.active === 1 ? [1, 0] : [0, 1];
+    for (const s of order) {
+      const w = this.weapons[s];
+      if (!w || !canMountScope(w.def) || mag <= w.scope) continue;
+      // never trade a gun's built-in optic for a weaker one
+      if (w.scope === 0 && SCOPES[mag].zoom <= w.def.zoom) continue;
+      return s;
+    }
+    return -1;
+  }
+
+  /** current ADS magnification */
+  zoom(): number {
+    const w = this.weapon;
+    return w ? weaponZoom(w.def, w.scope) : 1;
   }
 
   /** would `take` accept this item and is it an upgrade worth walking to? */
@@ -441,6 +478,8 @@ export class Character {
         const have = this.ammo[t];
         return have >= AMMO_MAX[t] ? 0 : have < 60 ? 5 : 1.5;
       }
+      case 'scope':
+        return this.scopeTarget(item.n) >= 0 ? 1.5 + item.n * 0.25 : 0;
       case 'helmet':
         return item.n > this.helmet ? 3 + item.n : 0;
       case 'vest':
@@ -459,7 +498,11 @@ export class Character {
   /** everything this character carries, used to build the death loot pile */
   spill(): Item[] {
     const out: Item[] = [];
-    for (const w of this.weapons) if (w) out.push({ kind: 'weapon', sub: w.def.id, n: w.ammo });
+    for (const w of this.weapons) {
+      if (!w) continue;
+      out.push({ kind: 'weapon', sub: w.def.id, n: w.ammo });
+      if (w.scope > 0) out.push({ kind: 'scope', n: w.scope });
+    }
     for (const t of Object.keys(this.ammo) as AmmoType[]) {
       let n = this.ammo[t];
       while (n > 0) {
@@ -485,7 +528,7 @@ export class Character {
       const w = this.weapons[i];
       if (w && i !== this.active) back = w.def.id;
     }
-    this.model.setWeapons(act ? act.def.id : null, back);
+    this.model.setWeapons(act ? act.def.id : null, back, act ? act.scope : 0);
   }
 
   // ------------------------------------------------------------- per frame

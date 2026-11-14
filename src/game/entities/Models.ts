@@ -15,6 +15,8 @@ export interface WeaponModel {
   /** where the magazine sits (reload animation) */
   mag: THREE.Vector3;
   twoHanded: boolean;
+  /** where a mounted optic sits; null for guns with a built-in scope or no rail */
+  rail: THREE.Vector3 | null;
 }
 
 const M = 'm';
@@ -44,7 +46,7 @@ function scope(gb: GeoBuilder, y: number, z: number, len: number, r: number): vo
   }
 }
 
-function build(fn: (gb: GeoBuilder) => void, muzzle: [number, number, number], support: [number, number, number], mag: [number, number, number], twoHanded = true): WeaponModel {
+function build(fn: (gb: GeoBuilder) => void, muzzle: [number, number, number], support: [number, number, number], mag: [number, number, number], twoHanded = true, rail: [number, number, number] | null = null): WeaponModel {
   const gb = new GeoBuilder();
   fn(gb);
   return {
@@ -53,6 +55,7 @@ function build(fn: (gb: GeoBuilder) => void, muzzle: [number, number, number], s
     support: new THREE.Vector3(...support),
     mag: new THREE.Vector3(...mag),
     twoHanded,
+    rail: rail ? new THREE.Vector3(...rail) : null,
   };
 }
 
@@ -80,15 +83,13 @@ function makeKestrel(): WeaponModel {
     gb.box(M, 0, 0.03, -0.25, 0.04, 0.11, 0.14, POLY);
     gb.box(M, 0, 0.068, -0.24, 0.036, 0.022, 0.12, DARK);
     gb.box(M, 0, 0.022, -0.325, 0.044, 0.13, 0.016, 0x0c0d0f);
-    // optic
-    gb.box(M, 0, 0.106, 0.05, 0.034, 0.016, 0.07, DARK);
-    gb.box(M, 0, 0.13, 0.05, 0.04, 0.04, 0.05, STEEL);
-    gb.box(M, 0, 0.13, 0.076, 0.03, 0.03, 0.002, 0x8a2a2a);
-    gb.box(M, 0, 0.13, 0.024, 0.03, 0.03, 0.002, 0x2a4a6a);
+    // iron sights
+    gb.box(M, 0, 0.104, -0.04, 0.026, 0.026, 0.014, DARK);
+    gb.box(M, 0, 0.108, 0.47, 0.012, 0.034, 0.012, DARK);
     // ejection port, forward assist
     gb.box(M, -0.024, 0.05, 0.07, 0.003, 0.02, 0.06, 0x0c0d0f);
     gb.cyl(M, -0.028, 0.05, -0.02, 0.008, 0.008, 0.012, DARK, 6, { rz: RX });
-  }, [0, 0.04, 0.67], [0, -0.005, 0.3], [0, -0.09, 0.105]);
+  }, [0, 0.04, 0.67], [0, -0.005, 0.3], [0, -0.09, 0.105], true, [0, 0.097, 0.07]);
 }
 
 function makeBulwark(): WeaponModel {
@@ -120,7 +121,7 @@ function makeBulwark(): WeaponModel {
     gb.box(M, 0, 0.088, 0.14, 0.02, 0.014, 0.06, DARK);
     gb.cyl(M, -0.03, 0.05, 0.08, 0.006, 0.006, 0.03, STEEL, 6, { rz: RX });
     gb.box(M, -0.023, 0.046, 0.04, 0.003, 0.016, 0.12, 0x0c0d0f);
-  }, [0, 0.04, 0.69], [0, -0.008, 0.3], [0, -0.09, 0.13]);
+  }, [0, 0.04, 0.69], [0, -0.008, 0.3], [0, -0.09, 0.13], true, [0, 0.079, 0.06]);
 }
 
 function makeHornet(): WeaponModel {
@@ -140,7 +141,7 @@ function makeHornet(): WeaponModel {
     gb.box(M, 0, 0.036, -0.305, 0.03, 0.1, 0.014, 0x0c0d0f);
     gb.box(M, 0, 0.11, -0.04, 0.012, 0.03, 0.012, DARK);
     gb.box(M, 0, 0.108, 0.2, 0.008, 0.026, 0.01, DARK);
-  }, [0, 0.04, 0.43], [0, -0.05, 0.2], [0, -0.1, 0.11]);
+  }, [0, 0.04, 0.43], [0, -0.05, 0.2], [0, -0.1, 0.11], true, [0, 0.1, 0.07]);
 }
 
 function makeViper(): WeaponModel {
@@ -174,7 +175,7 @@ function makeThunder(): WeaponModel {
     gb.box(M, 0, -0.018, 0.045, 0.008, 0.006, 0.075, STEEL);
     gb.box(M, 0, 0.074, 0.775, 0.006, 0.012, 0.006, 0xc9a020);
     gb.box(M, -0.023, 0.046, 0.08, 0.003, 0.02, 0.07, 0x0c0d0f);
-  }, [0, 0.056, 0.79], [0, 0.0, 0.4], [0, 0.0, 0.2]);
+  }, [0, 0.056, 0.79], [0, 0.0, 0.4], [0, 0.0, 0.2], true, [0, 0.076, 0.06]);
 }
 
 function makeRanger(): WeaponModel {
@@ -221,6 +222,26 @@ function makeLongbow(): WeaponModel {
     scope(gb, 0.122, 0.09, 0.3, 0.023);
     for (const sx of [-1, 1]) barrelZ(gb, sx * 0.02, -0.014, 0.36, 0.56, 0.005, STEEL, 6);
   }, [0, 0.056, 1.01], [0, -0.012, 0.34], [0, -0.04, 0.09]);
+}
+
+/** optics are built sitting on y = 0 (the rail), looking down +Z */
+function makeScope(mag: number): THREE.BufferGeometry {
+  const gb = new GeoBuilder();
+  // rail clamp
+  gb.box(M, 0, 0.008, 0, 0.032, 0.016, mag >= 4 ? 0.1 : 0.06, DARK);
+  if (mag === 1) {
+    gb.box(M, 0, 0.03, 0, 0.036, 0.03, 0.05, STEEL);
+    gb.box(M, 0, 0.056, 0.012, 0.036, 0.022, 0.012, STEEL);
+    for (const sx of [-1, 1]) gb.box(M, sx * 0.017, 0.056, -0.004, 0.004, 0.026, 0.044, STEEL);
+    gb.box(M, 0, 0.054, 0.006, 0.028, 0.02, 0.002, 0x7a2a2a);
+    gb.box(M, 0.02, 0.03, -0.01, 0.008, 0.012, 0.012, 0x15171a);
+  } else {
+    const r = mag === 2 ? 0.016 : mag === 4 ? 0.019 : 0.023;
+    const len = mag === 2 ? 0.09 : mag === 4 ? 0.16 : 0.26;
+    scope(gb, 0.02 + r, 0, len, r);
+    if (mag === 8) for (const sx of [-1, 1]) gb.cyl(M, sx * (r + 0.008), 0.02 + r, 0.02, 0.009, 0.009, 0.016, 0x8a8f96, 8, { rz: RX });
+  }
+  return gb.build()[M];
 }
 
 function makeGrenade(): THREE.BufferGeometry {
@@ -378,6 +399,7 @@ export interface ModelLibrary {
   helmet: THREE.BufferGeometry[];
   vest: THREE.BufferGeometry[];
   ammo: Record<string, THREE.BufferGeometry>;
+  scopes: Record<number, THREE.BufferGeometry>;
   medkit: THREE.BufferGeometry;
   bandage: THREE.BufferGeometry;
   drink: THREE.BufferGeometry;
@@ -410,6 +432,7 @@ export function getModels(): ModelLibrary {
       '7.62': makeAmmoBox(0xb0472e),
       '12g': makeAmmoBox(0x8a3ab0),
     },
+    scopes: { 1: makeScope(1), 2: makeScope(2), 4: makeScope(4), 8: makeScope(8) },
     medkit: makeMedkit(),
     bandage: makeBandage(),
     drink: makeDrink(),

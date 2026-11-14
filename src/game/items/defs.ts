@@ -63,7 +63,24 @@ export const WEAPONS: Record<string, WeaponDef> = {
 
 export const WEAPON_IDS = Object.keys(WEAPONS);
 
-export type ItemKind = 'weapon' | 'ammo' | 'helmet' | 'vest' | 'bandage' | 'medkit' | 'drink' | 'grenade';
+export type ItemKind = 'weapon' | 'ammo' | 'helmet' | 'vest' | 'bandage' | 'medkit' | 'drink' | 'grenade' | 'scope';
+
+/** optics that mount on any long gun; the key is the magnification class */
+export const SCOPES: Record<number, { label: string; short: string; zoom: number }> = {
+  1: { label: '레드닷 사이트', short: '레드닷', zoom: 1.3 },
+  2: { label: '2배율 스코프', short: '2배', zoom: 2 },
+  4: { label: '4배율 스코프', short: '4배', zoom: 4 },
+  8: { label: '8배율 스코프', short: '8배', zoom: 8 },
+};
+export const SCOPE_MAGS = [1, 2, 4, 8];
+
+export function canMountScope(def: WeaponDef): boolean {
+  return def.kind !== 'pistol';
+}
+/** ADS magnification of a weapon with whatever optic is on it */
+export function weaponZoom(def: WeaponDef, scope = 0): number {
+  return scope > 0 ? SCOPES[scope].zoom : def.zoom;
+}
 
 export interface Item {
   kind: ItemKind;
@@ -102,6 +119,7 @@ export function itemLabel(it: Item): string {
     case 'medkit': return '구급상자';
     case 'drink': return '에너지 드링크';
     case 'grenade': return '파편 수류탄';
+    case 'scope': return SCOPES[it.n].label;
   }
 }
 
@@ -117,6 +135,7 @@ export function itemRarity(it: Item): number {
       return it.n;
     case 'medkit': return 2;
     case 'grenade': return 1;
+    case 'scope': return it.n >= 8 ? 3 : it.n >= 4 ? 2 : 1;
     case 'drink': return 1;
     default: return 0;
   }

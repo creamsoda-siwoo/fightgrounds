@@ -52,7 +52,7 @@ export class Player {
     const free = game.uiOpen();
     // --- look
     if (input.locked && !free) {
-      const zoom = c.ads && c.weapon ? c.weapon.def.zoom : 1;
+      const zoom = c.ads && c.weapon ? c.zoom() : 1;
       const sens = (0.0021 * input.sensitivity) / (zoom > 1.6 ? zoom * 0.8 : 1);
       this.yaw -= input.mouseDX * sens;
       this.pitch = clamp(this.pitch - input.mouseDY * sens, -1.45, 1.45);
@@ -271,7 +271,7 @@ export class Player {
       c.reloadT = -1;
     }
     c.syncModel();
-    this.game.loot.scatter([{ kind: 'weapon', sub: w.def.id, n: w.ammo }], c.pos.x + c.fx() * 0.9, c.pos.y, c.pos.z + c.fz() * 0.9, c.inBuilding, false);
+    this.game.loot.scatter(w.scope > 0 ? [{ kind: 'weapon', sub: w.def.id, n: w.ammo }, { kind: 'scope', n: w.scope }] : [{ kind: 'weapon', sub: w.def.id, n: w.ammo }], c.pos.x + c.fx() * 0.9, c.pos.y, c.pos.z + c.fz() * 0.9, c.inBuilding, false);
     this.game.audio.ui('equip');
   }
 
@@ -361,7 +361,7 @@ export class Player {
       }
     } else {
       const w = c.weapon;
-      const zoom = w ? w.def.zoom : 1;
+      const zoom = w ? c.zoom() : 1;
       this.adsT = lerp(this.adsT, c.ads ? 1 : 0, damp(c.ads ? 13 : 16, dt));
       const eye = c.eyeHeight();
       if (c.ads && zoom >= 3 && this.adsT > 0.75) {

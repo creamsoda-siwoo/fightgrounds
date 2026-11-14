@@ -96,6 +96,7 @@ export class Airdrops {
       { kind: 'medkit', n: 1 },
       { kind: 'drink', n: 1 },
       { kind: 'grenade', n: 1 },
+      { kind: 'scope', n: rng() < 0.6 ? 8 : 4 },
     ];
   }
 

@@ -262,6 +262,8 @@ export class CharacterModel {
   bones: THREE.Bone[] = [];
   private weaponHolder = new THREE.Group();
   private weaponMesh: THREE.Mesh;
+  private scopeMesh: THREE.Mesh;
+  private curScope = 0;
   private backMesh: THREE.Mesh;
   private helmetMesh: THREE.Mesh;
   private vestMesh: THREE.Mesh;
@@ -317,6 +319,8 @@ export class CharacterModel {
     };
     this.weaponMesh = mk(lib.weapons.kestrel.geo, lib.weaponMat);
     this.weaponHolder.add(this.weaponMesh);
+    this.scopeMesh = mk(lib.scopes[1], lib.weaponMat);
+    this.weaponMesh.add(this.scopeMesh);
     this.bones[B.chest].add(this.weaponHolder);
     this.backMesh = mk(lib.weapons.kestrel.geo, lib.weaponMat);
     // slung flat across the pack, barrel up and to the left
@@ -346,12 +350,19 @@ export class CharacterModel {
     if (vest > 0) this.vestMesh.geometry = lib.vest[vest];
   }
 
-  setWeapons(active: string | null, back: string | null): void {
+  setWeapons(active: string | null, back: string | null, scope = 0): void {
     const lib = getModels();
-    if (active !== this.curWeapon) {
+    if (active !== this.curWeapon || scope !== this.curScope) {
+      this.curScope = scope;
       this.curWeapon = active;
       this.wm = active ? lib.weapons[active] : null;
       if (this.wm) this.weaponMesh.geometry = this.wm.geo;
+      const rail = this.wm?.rail;
+      this.scopeMesh.visible = !!rail && scope > 0;
+      if (rail && scope > 0) {
+        this.scopeMesh.geometry = lib.scopes[scope];
+        this.scopeMesh.position.copy(rail);
+      }
     }
     if (back !== this.curBack) {
       this.curBack = back;

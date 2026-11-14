@@ -4,6 +4,12 @@ import { getModels } from '../entities/Models';
 import type { LootSpot } from '../world/Structures';
 import { AMMO_STACK, ARMOR, WEAPONS, itemRarity, type AmmoType, type Item } from './defs';
 
+const SCOPE_TABLE: [number, number][][] = [
+  [[1, 45], [2, 35], [4, 17], [8, 3]],
+  [[1, 30], [2, 35], [4, 27], [8, 8]],
+  [[1, 15], [2, 30], [4, 37], [8, 18]],
+];
+
 export interface LootItem {
   id: number;
   item: Item;
@@ -95,7 +101,7 @@ export class Loot {
         k++;
       };
       for (let i = 0; i < rolls; i++) {
-        const cat = weighted(rng, [['weapon', 30 + tier * 4], ['ammo', 20], ['armor', 15 + tier * 3], ['heal', 22], ['grenade', 6 + tier], ['none', 5 - tier]] as [string, number][]);
+        const cat = weighted(rng, [['weapon', 30 + tier * 4], ['ammo', 20], ['armor', 15 + tier * 3], ['heal', 22], ['grenade', 6 + tier], ['scope', 9 + tier * 2], ['none', 5 - tier]] as [string, number][]);
         if (cat === 'weapon') {
           const id = weighted(rng, WEAPON_TABLE[tier]);
           const def = WEAPONS[id];
@@ -114,6 +120,8 @@ export class Loot {
           else put({ kind: h as 'medkit' | 'drink', n: 1 });
         } else if (cat === 'grenade') {
           put({ kind: 'grenade', n: 1 });
+        } else if (cat === 'scope') {
+          put({ kind: 'scope', n: weighted(rng, SCOPE_TABLE[tier]) });
         }
       }
     }
@@ -157,6 +165,11 @@ export class Loot {
       case 'drink':
         geo = lib.drink;
         scale = 1.3;
+        break;
+      case 'scope':
+        geo = lib.scopes[item.n];
+        mat = lib.weaponMat;
+        scale = 1.7;
         break;
       default:
         geo = lib.grenade;

@@ -10,7 +10,7 @@ import { OUTFITS } from './entities/CharacterModel';
 import { Plane } from './entities/Plane';
 import { Player } from './entities/Player';
 import { Input } from './Input';
-import { itemLabel, itemRarity } from './items/defs';
+import { SCOPES, itemLabel, itemRarity } from './items/defs';
 import { Loot } from './items/Loot';
 import { PostFX } from './render/PostFX';
 import { HudStore, type FeedEntry, type SlotInfo } from './store';
@@ -657,9 +657,10 @@ export class Game {
         continue;
       }
       const reserve = p.ammo[w.def.ammo];
-      if (!prev || prev.id !== w.def.id || prev.ammo !== w.ammo || prev.reserve !== reserve) {
+      const name = w.scope > 0 ? `${w.def.name} · ${SCOPES[w.scope].short}` : w.def.name;
+      if (!prev || prev.id !== w.def.id || prev.ammo !== w.ammo || prev.reserve !== reserve || prev.name !== name) {
         changed = true;
-        slots.push({ id: w.def.id, name: w.def.name, ammo: w.ammo, mag: w.def.mag, reserve });
+        slots.push({ id: w.def.id, name, ammo: w.ammo, mag: w.def.mag, reserve });
       } else slots.push(prev);
     }
     let action = st.action;
