@@ -150,7 +150,7 @@ export class Character {
    */
   move(dt: number, wx: number, wz: number, speed: number, jump: boolean): void {
     const world = this.game.world;
-    const accel = this.grounded ? 14 : 2.2;
+    const accel = this.grounded ? 20 : 2.2;
     const k = damp(accel, dt);
     this.vel.x += (wx * speed - this.vel.x) * k;
     this.vel.z += (wz * speed - this.vel.z) * k;
@@ -291,7 +291,7 @@ export class Character {
     if (slot >= 0 && !this.weapons[slot]) return;
     this.active = slot;
     this.reloadT = -1;
-    this.fireCd = Math.max(this.fireCd, 0.32);
+    this.fireCd = Math.max(this.fireCd, 0.22);
     this.bloom = 0;
     this.syncModel();
     if (this.isPlayer) this.game.audio.ui('equip');

@@ -149,7 +149,7 @@ export default function Hud({ game, s }: { game: Game; s: HudState }) {
   const active = s.active >= 0 ? s.slots[s.active] : null;
   const hpClass = s.hp > 60 ? 'ok' : s.hp > 30 ? 'warn' : 'bad';
   const inAir = s.phase === 'flight' || s.phase === 'drop';
-  const feed = s.feed.filter((f) => game.time - f.t < 7);
+  const feed = s.feed.filter((f) => game.time - f.t < 5).slice(-3);
 
   return (
     <div className={`hud ${ended ? 'ended' : ''}`}>
@@ -213,10 +213,12 @@ export default function Hud({ game, s }: { game: Game; s: HudState }) {
           {!inAir && (
             <>
               <div className="vitals">
-                <div className="gear">
-                  <ArmorPip label="헬멧" level={s.helmet} dur={s.helmetDur} />
-                  <ArmorPip label="조끼" level={s.vest} dur={s.vestDur} />
-                </div>
+                {(s.helmet > 0 || s.vest > 0) && (
+                  <div className="gear">
+                    {s.helmet > 0 && <ArmorPip label="헬멧" level={s.helmet} dur={s.helmetDur} />}
+                    {s.vest > 0 && <ArmorPip label="조끼" level={s.vest} dur={s.vestDur} />}
+                  </div>
+                )}
                 <div className="boost"><i style={{ width: `${s.boost}%` }} /></div>
                 <div className={`hp ${hpClass}`}>
                   <i style={{ width: `${Math.min(100, s.hp)}%` }} />
@@ -237,23 +239,29 @@ export default function Hud({ game, s }: { game: Game; s: HudState }) {
                     <em>맨손</em>
                   )}
                 </div>
-                <div className="slots">
-                  {[0, 1, 2].map((i) => {
-                    const w = s.slots[i];
-                    return (
-                      <div key={i} className={`slot ${s.active === i ? 'active' : ''} ${w ? '' : 'empty'}`}>
-                        <b>{i + 1}</b>
-                        <span>{w ? w.name : '—'}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-                <div className="items">
-                  <div className={s.medkits ? '' : 'none'}><b>4</b><span>구급상자</span><em>{s.medkits}</em></div>
-                  <div className={s.bandages ? '' : 'none'}><b>5</b><span>붕대</span><em>{s.bandages}</em></div>
-                  <div className={s.drinks ? '' : 'none'}><b>6</b><span>드링크</span><em>{s.drinks}</em></div>
-                  <div className={s.grenades ? '' : 'none'}><b>G</b><span>수류탄</span><em>{s.grenades}</em></div>
-                </div>
+                {/* only what you actually carry */}
+                {s.slots.some((w, i) => w && i !== s.active) && (
+                  <div className="slots">
+                    {[0, 1, 2].map((i) => {
+                      const w = s.slots[i];
+                      if (!w) return null;
+                      return (
+                        <div key={i} className={`slot ${s.active === i ? 'active' : ''}`}>
+                          <b>{i + 1}</b>
+                          <span>{w.name}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {(s.medkits > 0 || s.bandages > 0 || s.drinks > 0 || s.grenades > 0) && (
+                  <div className="items">
+                    {s.medkits > 0 && <div><b>4</b><span>구급상자</span><em>{s.medkits}</em></div>}
+                    {s.bandages > 0 && <div><b>5</b><span>붕대</span><em>{s.bandages}</em></div>}
+                    {s.drinks > 0 && <div><b>6</b><span>드링크</span><em>{s.drinks}</em></div>}
+                    {s.grenades > 0 && <div><b>G</b><span>수류탄</span><em>{s.grenades}</em></div>}
+                  </div>
+                )}
               </div>
             </>
           )}
@@ -271,7 +279,6 @@ export default function Hud({ game, s }: { game: Game; s: HudState }) {
               </div>
             </div>
           )}
-          <div className="fps">{s.fps} FPS</div>
         </>
       )}
     </div>

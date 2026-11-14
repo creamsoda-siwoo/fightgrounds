@@ -5,7 +5,7 @@ import type { Game } from '@/game/Game';
 import type { HudState } from '@/game/store';
 
 const RADIUS = 56;
-const LOOK = 2.4;
+const LOOK = 2.1;
 
 /** On-screen controls for phones and tablets: move stick, drag-to-look, action buttons. */
 export default function TouchControls({ game, s }: { game: Game; s: HudState }) {
@@ -26,12 +26,10 @@ export default function TouchControls({ game, s }: { game: Game; s: HudState }) 
     if (knob.current) knob.current.style.transform = `translate(${dx}px, ${dy}px)`;
     const nx = dx / RADIUS;
     const ny = dy / RADIUS;
-    const set = (code: string, on: boolean) => (on ? input.press(code) : input.release(code));
-    set('KeyW', ny < -0.3);
-    set('KeyS', ny > 0.3);
-    set('KeyA', nx < -0.3);
-    set('KeyD', nx > 0.3);
-    set('ShiftLeft', ny < -0.88);
+    input.setStick(nx, ny);
+    // pushing all the way forward sprints
+    if (ny < -0.88) input.press('ShiftLeft');
+    else input.release('ShiftLeft');
   };
   const stickDown = (e: RPE<HTMLDivElement>) => {
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -64,7 +62,12 @@ export default function TouchControls({ game, s }: { game: Game; s: HudState }) 
   const lookMove = (e: RPE<HTMLElement>) => {
     const p = looks.current.get(e.pointerId);
     if (!p) return;
-    input.look((e.clientX - p.x) * LOOK, (e.clientY - p.y) * LOOK);
+    // gentle acceleration: slow drags stay precise, fast swipes turn further
+    const dx = e.clientX - p.x;
+    const dy = e.clientY - p.y;
+    const ax = 1 + Math.min(Math.abs(dx) / 25, 1) * 0.5;
+    const ay = 1 + Math.min(Math.abs(dy) / 25, 1) * 0.5;
+    input.look(dx * LOOK * ax, dy * LOOK * ay);
     p.x = e.clientX;
     p.y = e.clientY;
   };
@@ -78,6 +81,9 @@ export default function TouchControls({ game, s }: { game: Game; s: HudState }) 
   };
   const ground = s.phase === 'playing';
   const active = s.active >= 0 ? s.slots[s.active] : null;
+  const weapons = s.slots.filter(Boolean).length;
+  const canReload = !!active && active.ammo < active.mag && active.reserve > 0;
+  const canHeal = s.hp < 100 && (s.medkits > 0 || s.bandages > 0 || s.drinks > 0);
 
   return (
     <div className="touch" onContextMenu={(e) => e.preventDefault()}>
@@ -88,19 +94,18 @@ export default function TouchControls({ game, s }: { game: Game; s: HudState }) 
 
       <div className="touch-top">
         <button onClick={() => input.unlock()}>Ⅱ</button>
-        <button onPointerDown={tap('KeyM')}>지도</button>
         {ground && <button onPointerDown={tap('Tab')}>가방</button>}
         <button className={s.autoPlay ? 'on' : ''} onClick={() => game.setAutoPlay(!s.autoPlay)}>오토</button>
-        {ground && <button onPointerDown={(e) => { e.stopPropagation(); game.placePing(); }}>핑</button>}
       </div>
+      {/* tapping the minimap opens the full map */}
+      <button className="minimap-hit" aria-label="전체 지도" onPointerDown={tap('KeyM')} />
 
-      {!s.autoPlay && <button className="tb interact" onPointerDown={tap('KeyF')}>
-        {s.phase === 'flight' ? '강하' : s.phase === 'drop' ? '낙하산' : '줍기'}
-      </button>}
-
-      {ground && !s.autoPlay && active?.mode && (
-        <button className="tb mode" onPointerDown={tap('KeyB')}>{active.mode}</button>
+      {!s.autoPlay && s.prompt.startsWith('F') && (
+        <button className="tb interact" onPointerDown={tap('KeyF')}>
+          {s.phase === 'flight' ? '강하' : s.phase === 'drop' ? '낙하산' : '줍기'}
+        </button>
       )}
+
       {ground && !s.autoPlay && (
         <>
           <button
@@ -112,13 +117,14 @@ export default function TouchControls({ game, s }: { game: Game; s: HudState }) 
           >
             사격
           </button>
-          <button className={`tb ads ${ads ? 'on' : ''}`} onPointerDown={(e) => { e.stopPropagation(); input.setAds(!ads); setAds(!ads); }}>조준</button>
+          {active && <button className={`tb ads ${ads ? 'on' : ''}`} onPointerDown={(e) => { e.stopPropagation(); input.setAds(!ads); setAds(!ads); }}>조준</button>}
           <button className="tb jump" onPointerDown={tap('Space')}>점프</button>
           <button className="tb crouch" onPointerDown={tap('KeyC')}>앉기</button>
-          <button className="tb reload" onPointerDown={tap('KeyR')}>장전</button>
-          <button className="tb swap" onPointerDown={(e) => { e.stopPropagation(); input.scroll(1); }}>무기</button>
-          <button className="tb heal" onPointerDown={tap('KeyH')}>회복</button>
-          <button className="tb nade" onPointerDown={tap('KeyG')}>수류탄</button>
+          {/* the rest only appear when they can do something */}
+          {canReload && <button className="tb reload" onPointerDown={tap('KeyR')}>장전</button>}
+          {weapons > 1 && <button className="tb swap" onPointerDown={(e) => { e.stopPropagation(); input.scroll(1); }}>무기</button>}
+          {canHeal && <button className="tb heal" onPointerDown={tap('KeyH')}>회복</button>}
+          {s.grenades > 0 && <button className="tb nade" onPointerDown={tap('KeyG')}>수류탄</button>}
         </>
       )}
     </div>

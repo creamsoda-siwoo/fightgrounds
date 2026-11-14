@@ -393,6 +393,7 @@ export class Game {
     if (victim === this.player) {
       this.hurtFlash = Math.min(1, this.hurtFlash + 0.25 + amount / 60);
       if (amount > 1.5) {
+        this.input.buzz(28);
         this.audio.ui('hurt');
         this.ctl.shakeAmp = Math.min(0.9, this.ctl.shakeAmp + 0.25 + amount / 90);
       }
@@ -487,6 +488,7 @@ export class Game {
   onPlayerHit(head: boolean, killed: boolean): void {
     this.hitT = this.time;
     this.hitHead = head;
+    this.input.buzz(killed ? 45 : head ? 18 : 8);
     if (!killed) this.audio.ui(head ? 'head' : 'hit');
   }
 

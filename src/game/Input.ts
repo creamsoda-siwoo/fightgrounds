@@ -15,6 +15,9 @@ export class Input {
   wantFree = false;
   onLockChange: (locked: boolean) => void = () => {};
   sensitivity = 1;
+  /** analog stick from the touch controls, -1..1 (y negative = forward) */
+  stickX = 0;
+  stickY = 0;
   /** on-screen controls drive the game; there is no pointer lock on phones */
   touch = false;
 
@@ -93,11 +96,21 @@ export class Input {
       this.onLockChange(true);
       return;
     }
+    // raw (unaccelerated) mouse movement where the browser supports it
+    const plain = () => {
+      try {
+        const p = this.el.requestPointerLock() as unknown as Promise<void> | undefined;
+        if (p && typeof p.catch === 'function') p.catch(() => {});
+      } catch {
+        /* pointer lock unavailable */
+      }
+    };
     try {
-      const p = this.el.requestPointerLock() as unknown as Promise<void> | undefined;
-      if (p && typeof p.catch === 'function') p.catch(() => {});
+      const req = this.el.requestPointerLock as unknown as (o?: { unadjustedMovement: boolean }) => Promise<void> | undefined;
+      const p = req.call(this.el, { unadjustedMovement: true });
+      if (p && typeof p.catch === 'function') p.catch(plain);
     } catch {
-      /* pointer lock unavailable */
+      plain();
     }
   }
   unlock(): void {
@@ -107,6 +120,7 @@ export class Input {
       this.lmb = false;
       this.rmb = false;
       this.keys.clear();
+      this.stickX = this.stickY = 0;
       this.onLockChange(false);
       return;
     }
@@ -132,6 +146,19 @@ export class Input {
   setFire(on: boolean): void {
     if (on && !this.lmb) this.lmbPressed = true;
     this.lmb = on && this.locked;
+  }
+  setStick(x: number, y: number): void {
+    this.stickX = x;
+    this.stickY = y;
+  }
+  /** short vibration on phones that support it */
+  buzz(ms: number): void {
+    if (!this.touch) return;
+    try {
+      navigator.vibrate?.(ms);
+    } catch {
+      /* not supported */
+    }
   }
   scroll(dir: number): void {
     this.wheel += dir;

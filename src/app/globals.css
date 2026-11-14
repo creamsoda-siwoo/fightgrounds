@@ -495,3 +495,16 @@ button.inv-row:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); }
   .is-touch .auto-badge { font-size: 11px; padding: 4px 9px; }
   .is-touch .auto-badge em { display: none; }
 }
+
+/* ------------------------------------------- cleaner touch screen */
+.minimap-hit { display: none; }
+.is-touch .minimap { left: auto; right: 22px; bottom: auto; top: 66px; width: 150px; height: 150px; }
+.is-touch .feed { right: 186px; }
+.touch .minimap-hit { display: block; position: absolute; right: 22px; top: 66px; width: 150px; height: 150px; padding: 0; background: transparent; border: 0; border-radius: 6px; }
+.touch .minimap-hit:active { background: rgba(255, 255, 255, 0.08); }
+@media (max-height: 520px) {
+  .is-touch .minimap { right: 12px; top: 42px; width: 92px; height: 92px; }
+  .is-touch .feed { right: 116px; }
+  .touch .minimap-hit { right: 12px; top: 42px; width: 92px; height: 92px; }
+}
+.is-touch .fire-mode { display: none; }

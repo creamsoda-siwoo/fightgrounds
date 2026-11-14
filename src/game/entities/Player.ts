@@ -39,6 +39,10 @@ export class Player {
   private autoT = 0;
   private autoTarget = false;
   private lastShot = -9;
+  /** touch aim assist: nearest enemy close to the crosshair, and how close (radians) */
+  private assistTarget: Character | null = null;
+  private assistErr = 9;
+  private assistT = 0;
 
   constructor(private game: Game, public c: Character) {}
 
@@ -63,7 +67,9 @@ export class Player {
     const looking = (input.down('AltLeft') || input.down('AltRight')) && !c.ads && c.alive;
     if (input.locked && !free) {
       const zoom = c.ads && c.weapon ? c.zoom() : 1;
-      const sens = (0.0021 * input.sensitivity) / (zoom > 1.6 ? zoom * 0.8 : 1);
+      // touch: the view slows a little while it is on an enemy, which makes small corrections easy
+      const friction = input.touch && this.assistErr < 0.07 ? 0.6 : 1;
+      const sens = ((0.0021 * input.sensitivity) / (zoom > 1.6 ? zoom * 0.8 : 1)) * friction;
       if (looking) this.freeLook = clamp(this.freeLook - input.mouseDX * sens, -2.4, 2.4);
       else this.yaw -= input.mouseDX * sens;
       this.pitch = clamp(this.pitch - input.mouseDY * sens, -1.45, 1.45);
@@ -81,6 +87,8 @@ export class Player {
       return;
     }
     if (game.autoPlay && c.mode === 'plane') return;
+    if (input.touch && c.alive && c.mode === 'ground' && c.weapon && this.freeLook === 0 && !free) this.aimAssist(dt);
+    else this.assistErr = 9;
     if (this.recover > 0) {
       const r = Math.min(this.recover, dt * (this.recover * 9 + 0.03));
       this.pitch -= r;
@@ -93,8 +101,16 @@ export class Player {
     if (input.hit('Equal')) this.game.setAutoRun(!this.autoRun);
     // on touch the stick itself presses W, so there the next stick touch cancels instead
     else if (this.autoRun && !input.touch && (input.hit('KeyW') || input.hit('KeyS'))) this.game.setAutoRun(false);
-    const fwd = this.autoRun ? 1 : (input.down('KeyW') ? 1 : 0) - (input.down('KeyS') ? 1 : 0);
-    const side = (input.down('KeyD') ? 1 : 0) - (input.down('KeyA') ? 1 : 0);
+    let fwd = this.autoRun ? 1 : (input.down('KeyW') ? 1 : 0) - (input.down('KeyS') ? 1 : 0);
+    let side = (input.down('KeyD') ? 1 : 0) - (input.down('KeyA') ? 1 : 0);
+    // analog touch stick: any direction, speed follows how far it is pushed
+    let moveScale = 1;
+    const stick = Math.hypot(input.stickX, input.stickY);
+    if (input.touch && stick > 0.12 && !this.autoRun) {
+      fwd = -input.stickY;
+      side = input.stickX;
+      moveScale = clamp((stick - 0.12) / 0.6, 0.35, 1);
+    }
     const sy = Math.sin(this.yaw);
     const cy = Math.cos(this.yaw);
     // forward = (sin, cos), right = (-cos, sin)
@@ -170,7 +186,7 @@ export class Player {
         game.audio.ui('click');
       }
       if (input.mmbHit()) game.placePing();
-      c.move(dt, wx, wz, wl > 0 ? c.moveSpeed() : 0, jump);
+      c.move(dt, wx, wz, wl > 0 ? c.moveSpeed() * moveScale : 0, jump);
       if (wl > 0 && c.heal && c.sprint) c.cancelHeal();
 
       // weapons
@@ -333,6 +349,57 @@ export class Player {
     this.game.audio.ui('equip');
   }
 
+  /**
+   * Light aim assist for touch screens: find the enemy nearest the crosshair
+   * (within about 7 degrees, in range and in sight) and ease the view onto it.
+   */
+  private aimAssist(dt: number): void {
+    const game = this.game;
+    const c = this.c;
+    const w = c.weapon!;
+    const cam = game.camera.position;
+    this.assistT -= dt;
+    if (this.assistT <= 0) {
+      this.assistT = 0.12;
+      this.assistTarget = null;
+      const range = Math.min(w.def.falloffEnd, w.def.botRange * 3.5);
+      const cp = Math.cos(this.pitch);
+      const fx = Math.sin(this.yaw) * cp;
+      const fy = Math.sin(this.pitch);
+      const fz = Math.cos(this.yaw) * cp;
+      let best = 0.12;
+      for (const o of game.chars) {
+        if (o === c || !o.alive || o.mode !== 'ground') continue;
+        const tx = o.pos.x - cam.x;
+        const ty = o.pos.y + o.height * 0.62 - cam.y;
+        const tz = o.pos.z - cam.z;
+        const d = Math.hypot(tx, ty, tz);
+        if (d < 1.5 || d > range) continue;
+        const ang = Math.acos(clamp((tx * fx + ty * fy + tz * fz) / d, -1, 1));
+        if (ang >= best) continue;
+        if (!game.world.clearLine(cam.x, cam.y, cam.z, o.pos.x, o.pos.y + o.height * 0.62, o.pos.z)) continue;
+        best = ang;
+        this.assistTarget = o;
+      }
+    }
+    const t = this.assistTarget;
+    if (!t || !t.alive) {
+      this.assistErr = 9;
+      return;
+    }
+    const tx = t.pos.x - cam.x;
+    const ty = t.pos.y + t.height * 0.62 - cam.y;
+    const tz = t.pos.z - cam.z;
+    const ey = angleDiff(this.yaw, Math.atan2(tx, tz));
+    const ep = Math.atan2(ty, Math.hypot(tx, tz)) - this.pitch;
+    const err = Math.hypot(ey, ep);
+    this.assistErr = err;
+    if (err > 0.12) return;
+    const k = damp(c.ads ? 5 : 3.5, dt) * (1 - err / 0.12) * 0.6;
+    this.yaw += ey * k;
+    this.pitch += ep * k;
+  }
+
   /** is the centre of the screen on a living enemy within this gun's useful range? */
   private crosshairOnEnemy(): boolean {
     const c = this.c;
@@ -441,7 +508,7 @@ export class Player {
       const w = c.weapon;
       const zoom = w ? c.zoom() : 1;
       const ads = c.ads && !game.autoPlay;
-      this.adsT = lerp(this.adsT, ads ? 1 : 0, damp(ads ? 13 : 16, dt));
+      this.adsT = lerp(this.adsT, ads ? 1 : 0, damp(ads ? 18 : 20, dt));
       const eye = c.eyeHeight();
       if (ads && zoom >= 3 && this.adsT > 0.75) {
         // looking through the optic
@@ -485,7 +552,7 @@ export class Player {
       cam.rotation.z += Math.sin(this.shakeT * 2.1) * 0.03 * s;
       this.shakeAmp = Math.max(0, this.shakeAmp - dt * 2.4);
     }
-    this.fov = lerp(this.fov, targetFov, damp(this.scoped ? 30 : 12, dt));
+    this.fov = lerp(this.fov, targetFov, damp(this.scoped ? 30 : 16, dt));
     if (Math.abs(cam.fov - this.fov) > 0.01) {
       cam.fov = this.fov;
       cam.updateProjectionMatrix();
