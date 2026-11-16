@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { Game } from '@/game/Game';
-import type { Quality } from '@/game/config';
+import type { Difficulty, Quality } from '@/game/config';
+import { Room, cleanCode, makeCode, type StartMsg } from '@/game/net/Room';
 import { HudStore } from '@/game/store';
+import { supabaseConfigured } from '@/lib/supabase';
 import EndScreen from './EndScreen';
 import Hud from './Hud';
 import Menu from './Menu';
@@ -38,9 +40,16 @@ export default function GameClient() {
   const [name, setName] = useState(() => load('fightgrounds.name', ''));
   const [sensitivity, setSensitivity] = useState(() => load('fightgrounds.sens', 1));
   const [volume, setVolume] = useState(() => load('fightgrounds.volume', 0.8));
+  const [difficulty, setDifficulty] = useState<Difficulty>(() => load<Difficulty>('fightgrounds.difficulty', 'normal'));
   const [error, setError] = useState('');
   const [touch] = useState(() => window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window);
+  const [autoFire, setAutoFire] = useState(() => load('fightgrounds.autofire', touch));
   const [matchKey, setMatchKey] = useState(0);
+  const [room, setRoom] = useState<Room | null>(null);
+  const [, setRoomTick] = useState(0);
+  const roomRef = useRef<Room | null>(null);
+  const nameRef = useRef(name);
+  const openRef = useRef<(code: string) => void>(() => {});
 
   useEffect(() => {
     let cancelled = false;
@@ -59,11 +68,15 @@ export default function GameClient() {
         game.manual = params.has('manual');
         game.input.sensitivity = sens;
         game.input.touch = coarse;
+        game.setAutoFire(load('fightgrounds.autofire', coarse));
         game.audio.volume = vol;
         gameRef.current = game;
         setGame(game);
         (window as unknown as { __game: Game }).__game = game;
         await game.init();
+        // invite links (?room=CODE) drop you straight into that room
+        const code = cleanCode(params.get('room') ?? '');
+        if (!cancelled && code.length === 4) openRef.current(code);
       } catch (e) {
         console.error(e);
         if (!cancelled) setError((e as Error).message || 'WebGL을 초기화하지 못했습니다.');
@@ -76,18 +89,73 @@ export default function GameClient() {
     };
   }, [store]);
 
+  useEffect(() => {
+    nameRef.current = name;
+    roomRef.current?.setName(name);
+  }, [name]);
+  useEffect(() => () => roomRef.current?.leave(), []);
+
+  const enterFullscreen = useCallback(() => {
+    if (!touch) return;
+    // phones: go fullscreen landscape when the browser allows it
+    const el = document.documentElement;
+    el.requestFullscreen?.().then(() => (screen.orientation as unknown as { lock?: (o: string) => Promise<void> }).lock?.('landscape')).catch(() => {});
+  }, [touch]);
+
+  const startOnline = useCallback((r: Room, m: StartMsg) => {
+    const g = gameRef.current;
+    const slot = m.roster.findIndex((x) => x.id === r.me.id);
+    if (!g || slot < 0 || g.store.state.phase === 'loading') return;
+    save('fightgrounds.name', nameRef.current);
+    setMatchKey((k) => k + 1);
+    enterFullscreen();
+    g.startMatch(nameRef.current, { room: r, start: m, slot });
+    r.setState('playing');
+  }, [enterFullscreen]);
+
+  const setUrlRoom = (code: string) => {
+    const url = new URL(window.location.href);
+    if (code) url.searchParams.set('room', code);
+    else url.searchParams.delete('room');
+    window.history.replaceState(null, '', url.toString());
+  };
+
+  const openRoom = useCallback((code: string) => {
+    roomRef.current?.leave();
+    const r = new Room(code, nameRef.current);
+    r.onChange = () => {
+      setRoomTick((n) => n + 1);
+      gameRef.current?.net?.refresh();
+    };
+    r.onPacket = (p) => gameRef.current?.net?.receive(p);
+    r.onStart = (m) => startOnline(r, m);
+    roomRef.current = r;
+    setRoom(r);
+    setUrlRoom(code);
+    r.join();
+  }, [startOnline]);
+  useEffect(() => {
+    openRef.current = openRoom;
+  }, [openRoom]);
+
+  const leaveRoom = useCallback(() => {
+    const g = gameRef.current;
+    if (g?.net) g.toMenu();
+    roomRef.current?.leave();
+    roomRef.current = null;
+    setRoom(null);
+    setUrlRoom('');
+  }, []);
+
   const start = useCallback(() => {
     const g = gameRef.current;
     if (!g) return;
     save('fightgrounds.name', name);
     setMatchKey((k) => k + 1);
-    if (touch) {
-      // phones: go fullscreen landscape when the browser allows it
-      const el = document.documentElement;
-      el.requestFullscreen?.().then(() => (screen.orientation as unknown as { lock?: (o: string) => Promise<void> }).lock?.('landscape')).catch(() => {});
-    }
+    enterFullscreen();
+    g.difficulty = difficulty;
     g.startMatch(name);
-  }, [name, touch]);
+  }, [name, difficulty, enterFullscreen]);
 
   const live = s.phase === 'flight' || s.phase === 'drop' || s.phase === 'playing' || s.phase === 'dead' || s.phase === 'won';
 
@@ -113,6 +181,17 @@ export default function GameClient() {
           name={name}
           quality={s.quality}
           sensitivity={sensitivity}
+          difficulty={difficulty}
+          autoFire={autoFire}
+          onAutoFire={(v) => {
+            setAutoFire(v);
+            save('fightgrounds.autofire', v);
+            gameRef.current?.setAutoFire(v);
+          }}
+          onDifficulty={(d) => {
+            setDifficulty(d);
+            save('fightgrounds.difficulty', d);
+          }}
           volume={volume}
           fps={s.fps}
           onName={setName}
@@ -134,6 +213,11 @@ export default function GameClient() {
             gameRef.current?.audio.setVolume(v);
           }}
           onStart={start}
+          room={room}
+          roomAvailable={supabaseConfigured()}
+          onCreateRoom={() => openRoom(makeCode())}
+          onJoinRoom={openRoom}
+          onLeaveRoom={leaveRoom}
         />
       )}
       {live && game && <Hud game={game} s={s} />}
@@ -145,8 +229,9 @@ export default function GameClient() {
             key={matchKey}
             result={s.result}
             name={name}
-            onAgain={start}
-            onMenu={() => game.toMenu()}
+            online={s.online}
+            onAgain={s.online ? () => game.toMenu() : start}
+            onMenu={s.online ? leaveRoom : () => game.toMenu()}
             onSpectate={s.phase === 'dead' && s.alive > 1 ? () => game.spectateNext(game.player.lastHitBy) : undefined}
           />
         </div>

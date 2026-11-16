@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { AudioSys } from './audio/AudioSys';
 import { Combat } from './combat/Combat';
 import { Effects } from './combat/Effects';
-import { QUALITY, TOTAL_PLAYERS, type Quality } from './config';
+import { QUALITY, TOTAL_PLAYERS, type Difficulty, type Quality } from './config';
 import { clamp, mulberry32, rrange, type Rng } from './core/math';
 import { Bot } from './entities/Bot';
 import { Character, type BodyPart } from './entities/Character';
@@ -10,10 +10,13 @@ import { OUTFITS } from './entities/CharacterModel';
 import { Plane } from './entities/Plane';
 import { Player } from './entities/Player';
 import { Input } from './Input';
-import { itemLabel, itemRarity } from './items/defs';
+import { SCOPES, itemLabel, itemRarity, type Item } from './items/defs';
 import { Loot } from './items/Loot';
+import { NetSync } from './net/NetSync';
+import type { Room, StartMsg } from './net/Room';
 import { PostFX } from './render/PostFX';
 import { HudStore, type FeedEntry, type SlotInfo } from './store';
+import { Airdrops } from './world/Airdrops';
 import { World } from './world/World';
 import { Zone } from './world/Zone';
 
@@ -33,6 +36,7 @@ export interface DamageMark {
 const _frustum = new THREE.Frustum();
 const _pm = new THREE.Matrix4();
 const _sphere = new THREE.Sphere();
+const _dir = new THREE.Vector3();
 
 export class Game {
   renderer: THREE.WebGLRenderer;
@@ -61,9 +65,27 @@ export class Game {
   spectate: Character | null = null;
   // high frequency HUD data, read directly by the canvas overlay
   hitT = -9;
+  difficulty: Difficulty = 'normal';
+  /** fire automatically while the crosshair rests on an enemy */
+  autoFire = false;
+  /** the player's character is driven by the bot AI */
+  autoPlay = false;
+  playerBot: Bot | null = null;
+  /** map marker placed with the middle mouse button / ping button */
+  ping: { x: number; y: number; z: number; t: number } | null = null;
+  /** nearby footsteps and gunshots, shown as direction ticks around the crosshair */
+  soundMarks: { angle: number; kind: 'step' | 'shot'; t: number }[] = [];
+  airdrops: Airdrops;
+  /** floating damage numbers for hits the player lands */
+  damageNumbers: { x: number; y: number; z: number; amount: number; head: boolean; t: number }[] = [];
   hitHead = false;
   killT = -9;
   damageMarks: DamageMark[] = [];
+  /** multiplayer match in progress (null when playing alone) */
+  net: NetSync | null = null;
+  private leaving = false;
+  private bgTimer = 0;
+  private bgLast = 0;
   private hurtFlash = 0;
   private raf = 0;
   private last = 0;
@@ -99,9 +121,12 @@ export class Game {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 0.5;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    // reading shader logs after every compile forces the GPU driver to finish synchronously
+    this.renderer.debug.checkShaderErrors = window.location.search.includes('debug');
     this.camera.far = q.viewDistance + 1200;
     this.input = new Input(canvas);
     this.combat = new Combat(this);
+    this.airdrops = new Airdrops(this);
     this.input.onLockChange = (locked) => {
       const ph = this.store.state.phase;
       const live = ph === 'flight' || ph === 'drop' || ph === 'playing';
@@ -121,7 +146,7 @@ export class Game {
     this.store.emit({ progress: 0.92, progressLabel: '생존자 배치 중' });
     await new Promise((r) => setTimeout(r, 30));
     this.effects = new Effects(this.scene.fog as THREE.FogExp2);
-    this.scene.add(this.effects.group, this.loot.group, this.combat.group, this.zone.mesh, this.plane.group);
+    this.scene.add(this.effects.group, this.airdrops.group, this.loot.group, this.combat.group, this.zone.mesh, this.plane.group);
     for (let i = 0; i < TOTAL_PLAYERS; i++) {
       const isPlayer = i === 0;
       const c = new Character(this, i, isPlayer ? this.playerName : BOT_NAMES[(i - 1) % BOT_NAMES.length], isPlayer, isPlayer ? 0 : 1 + ((i * 5) % (OUTFITS.length - 1)));
@@ -130,6 +155,7 @@ export class Game {
       if (isPlayer) {
         this.player = c;
         this.ctl = new Player(this, c);
+        this.playerBot = new Bot(this, c, mulberry32(4242));
       } else {
         this.bots.push(new Bot(this, c, mulberry32(977 + i * 131)));
       }
@@ -138,6 +164,9 @@ export class Game {
     this.post = new PostFX(this.renderer, this.scene, this.camera, q);
     this.resize();
     window.addEventListener('resize', this.resize);
+    this.store.emit({ progress: 0.96, progressLabel: '셰이더 준비 중' });
+    await new Promise((r) => setTimeout(r, 30));
+    this.warmShaders();
     // compile shaders up front so the first match does not hitch
     try {
       this.camera.position.set(300, 160, 300);
@@ -148,8 +177,72 @@ export class Game {
     }
     this.input.wantFree = true;
     this.store.emit({ phase: 'menu', progress: 1, progressLabel: '' });
+    document.addEventListener('visibilitychange', this.onVisibility);
     this.last = performance.now();
     if (!this.manual) this.raf = requestAnimationFrame(this.frame);
+  }
+
+  /**
+   * Draw one hidden frame with every kind of object in view (characters with
+   * gear and weapons, loot, the aircraft, a supply crate, the storm wall) so
+   * their shaders and shadow variants compile during loading instead of
+   * stalling the first seconds of a match.
+   */
+  private warmShaders(): void {
+    const cam = this.camera;
+    const y = Math.max(0, this.world.heightAt(0, 0)) + 60;
+    cam.position.set(0, y + 1.5, 9);
+    cam.lookAt(0, y + 0.8, 0);
+    cam.updateMatrixWorld();
+    this.chars.forEach((c, i) => {
+      const m = c.model;
+      m.group.visible = true;
+      m.group.position.set((i % 8) - 3.5, y, -Math.floor(i / 8) * 1.4);
+      m.setGear(1 + (i % 3), 1 + (i % 3));
+      m.setWeapons(i % 2 ? 'kestrel' : 'viper', 'longbow', i % 2 ? 4 : 0);
+      m.group.updateMatrixWorld(true);
+    });
+    this.plane.group.visible = true;
+    this.plane.group.position.set(0, y + 8, -40);
+    this.zone.mesh.visible = true;
+    this.zone.mesh.position.set(0, y - 10, -20);
+    this.zone.mesh.scale.set(14, 40, 14);
+    const kinds: Item[] = [
+      { kind: 'weapon', sub: 'kestrel', n: 30 }, { kind: 'ammo', sub: '5.56', n: 30 }, { kind: 'helmet', n: 2 }, { kind: 'vest', n: 2 },
+      { kind: 'bandage', n: 3 }, { kind: 'medkit', n: 1 }, { kind: 'drink', n: 1 }, { kind: 'grenade', n: 1 }, { kind: 'scope', n: 4 },
+    ];
+    kinds.forEach((it, i) => {
+      this.loot.spawn(it, i - 4, y, 4).mesh.visible = true;
+    });
+    this.loot.update(0, cam.position, 1e4);
+    this.airdrops.spawnAt(0, 0);
+    this.airdrops.drops[0]?.group.position.set(5, y, 1);
+    try {
+      // centres the sun's shadow box on the camera so shadow shaders compile too
+      this.world.update(0, cam);
+      this.post.render(0);
+      // the scenery's shadow shaders only appear near the ground: a town and the woods
+      const site = this.world.sites[0];
+      for (const [x, z] of [[site.x + 4, site.z + 4], [site.x * 0.5 + 120, site.z * 0.5 - 90]]) {
+        const h = Math.max(0, this.world.heightAt(x, z));
+        cam.position.set(x, h + 1.7, z);
+        cam.lookAt(x + 10, h + 1.2, z + 10);
+        cam.updateMatrixWorld();
+        this.world.update(0, cam);
+        this.post.render(0);
+      }
+    } catch {
+      /* non fatal */
+    }
+    for (const c of this.chars) {
+      c.model.group.visible = false;
+      c.model.setGear(0, 0);
+      c.model.setWeapons(null, null);
+    }
+    this.plane.group.visible = false;
+    this.zone.mesh.visible = false;
+    this.loot.clear();
+    this.airdrops.clear();
   }
 
   private resize = (): void => {
@@ -166,16 +259,23 @@ export class Game {
 
   // ------------------------------------------------------------ match flow
 
-  startMatch(name: string): void {
+  startMatch(name: string, online?: { room: Room; start: StartMsg; slot: number }): void {
+    this.net?.leave();
+    this.net = null;
     this.playerName = name.trim().slice(0, 16) || '플레이어';
     this.player.name = this.playerName;
-    this.matchSeed = (Date.now() ^ (Math.random() * 1e9)) >>> 0;
+    if (online) this.difficulty = online.start.difficulty;
+    this.matchSeed = online ? online.start.seed : (Date.now() ^ (Math.random() * 1e9)) >>> 0;
     this.rng = mulberry32(this.matchSeed);
     this.audio.resume();
     this.loot.clear();
+    // every client builds the same loot from the shared seed
     this.loot.populate(this.world.lootSpots, this.matchSeed);
+    if (online) this.loot.setIdBase(1_000_000 * (online.slot + 1));
     this.effects.clear();
     this.combat.clear();
+    this.airdrops.clear();
+    this.damageNumbers.length = 0;
     this.zone.stop();
     this.zone.start(this.world, this.rng);
     this.plane.start(this.rng);
@@ -188,35 +288,23 @@ export class Game {
     for (const c of this.chars) {
       c.reset();
       c.pos.copy(this.plane.pos);
+      c.remote = false;
+      c.netId = c.id;
+      if (c !== this.player) c.name = BOT_NAMES[(c.id - 1) % BOT_NAMES.length];
     }
     // every bot picks somewhere to land that the flight path can reach
-    const sites = this.world.sites;
     for (const b of this.bots) {
       b.reset();
-      let tx = 0;
-      let tz = 0;
-      let at = 0.5;
-      for (let k = 0; k < 10; k++) {
-        if (this.rng() < 0.82) {
-          const s = sites[Math.floor(this.rng() * sites.length)];
-          const a = this.rng() * Math.PI * 2;
-          const r = Math.sqrt(this.rng()) * s.radius * 0.8;
-          tx = s.x + Math.cos(a) * r;
-          tz = s.z + Math.sin(a) * r;
-        } else {
-          const a = this.rng() * Math.PI * 2;
-          const r = Math.sqrt(this.rng()) * 420;
-          tx = Math.cos(a) * r;
-          tz = Math.sin(a) * r;
-        }
-        const cl = this.plane.closest(tx, tz);
-        at = cl.t;
-        if (cl.miss < 330 && cl.t > 0.1 && cl.t < 0.9 && this.world.heightAt(tx, tz) > 1) break;
-      }
-      b.dropX = tx;
-      b.dropZ = tz;
-      b.jumpAt = clamp(at - 0.03 + rrange(this.rng, -0.02, 0.02), 0.08, 0.9);
+      this.planDrop(b, 0.1);
     }
+    this.soundMarks.length = 0;
+    this.ping = null;
+    if (online) {
+      this.net = new NetSync(this, online.room, online.start, online.slot);
+      const humans = online.start.roster.length;
+      for (const c of this.chars) if (c.netId >= humans) c.name = BOT_NAMES[(c.netId - 1) % BOT_NAMES.length];
+    }
+    this.leaving = false;
     this.ctl.reset();
     this.ctl.yaw = Math.atan2(this.plane.dir.x, this.plane.dir.z);
     this.input.wantFree = false;
@@ -224,11 +312,108 @@ export class Game {
     this.store.emit({
       phase: 'flight', paused: false, result: null, feed: [], kills: 0, alive: TOTAL_PLAYERS, inventory: false, map: false,
       banner: '강하 지점을 선택하세요', bannerSub: 'F 키로 수송기에서 뛰어내립니다', bannerT: 1, prompt: '', hp: 100, boost: 0, near: [], spectating: '',
+      online: !!online, roomCode: online ? online.room.code : '', humans: online ? online.start.roster.length : 1,
     });
     this.bannerT = 5;
   }
 
+  /** pick a landing spot the aircraft still passes over */
+  private planDrop(b: Bot, minT: number): void {
+    const sites = this.world.sites;
+    let tx = 0;
+    let tz = 0;
+    let at = 0.5;
+    for (let k = 0; k < 12; k++) {
+      if (this.rng() < 0.82) {
+        const s = sites[Math.floor(this.rng() * sites.length)];
+        const a = this.rng() * Math.PI * 2;
+        const r = Math.sqrt(this.rng()) * s.radius * 0.8;
+        tx = s.x + Math.cos(a) * r;
+        tz = s.z + Math.sin(a) * r;
+      } else {
+        const a = this.rng() * Math.PI * 2;
+        const r = Math.sqrt(this.rng()) * 420;
+        tx = Math.cos(a) * r;
+        tz = Math.sin(a) * r;
+      }
+      const cl = this.plane.closest(tx, tz);
+      at = cl.t;
+      if (cl.miss < 330 && cl.t > minT && cl.t < 0.9 && this.world.heightAt(tx, tz) > 1) break;
+    }
+    b.dropX = tx;
+    b.dropZ = tz;
+    b.jumpAt = clamp(at - 0.03 + rrange(this.rng, -0.02, 0.02), minT, 0.9);
+  }
+
+  /** hand the player's character to the AI, or take it back */
+  setAutoPlay(on: boolean): void {
+    const p = this.player;
+    const b = this.playerBot;
+    if (!p || !b || on === this.autoPlay) return;
+    const live = this.store.state.phase === 'flight' || this.store.state.phase === 'drop' || this.store.state.phase === 'playing';
+    if (on && (!live || !p.alive)) return;
+    this.autoPlay = on;
+    p.ads = false;
+    p.sprint = false;
+    if (on) {
+      b.reset();
+      b.setSkill(0.82);
+      b.aggression = 0.6;
+      if (p.mode === 'plane') this.planDrop(b, this.plane.progress + 0.02);
+      this.ctl.autoRun = false;
+    } else {
+      // take over facing wherever the AI was looking
+      this.ctl.yaw = p.yaw;
+      this.ctl.pitch = clamp(p.pitch, -1.2, 1.2);
+      p.crouch = false;
+      p.cancelHeal();
+    }
+    this.audio.ui('click');
+    this.store.emit({ autoPlay: on, autoRun: false });
+    this.banner(on ? '오토 플레이 켜짐' : '오토 플레이 꺼짐', on ? 'AI가 대신 루팅·이동·교전합니다' : '직접 조작으로 돌아왔습니다', 2);
+  }
+
+  setAutoRun(on: boolean): void {
+    if (this.ctl.autoRun === on) return;
+    this.ctl.autoRun = on;
+    this.store.emit({ autoRun: on });
+  }
+  setAutoFire(on: boolean): void {
+    this.autoFire = on;
+  }
+
+  /** drop a marker where the crosshair points (or clear it when pinging the same spot) */
+  placePing(): void {
+    const cam = this.camera;
+    cam.getWorldDirection(_dir);
+    const hit = { t: 0, nx: 0, ny: 1, nz: 0, surf: 0, x: 0, y: 0, z: 0 };
+    if (!this.world.raycast(cam.position.x, cam.position.y, cam.position.z, _dir.x, _dir.y, _dir.z, 900, hit)) return;
+    if (this.ping && Math.hypot(this.ping.x - hit.x, this.ping.z - hit.z) < 4) this.ping = null;
+    else this.ping = { x: hit.x, y: hit.y, z: hit.z, t: this.time };
+    this.audio.ui('click');
+  }
+
+  /** remember where a sound came from so the HUD can point at it */
+  soundCue(x: number, z: number, kind: 'step' | 'shot', range: number): void {
+    const p = this.player;
+    if (!p || !p.alive || p.mode !== 'ground') return;
+    const d = Math.hypot(x - p.pos.x, z - p.pos.z);
+    if (d > range || d < 2) return;
+    this.soundMarks.push({ angle: Math.atan2(x - p.pos.x, z - p.pos.z), kind, t: this.time });
+    if (this.soundMarks.length > 16) this.soundMarks.shift();
+  }
+
   toMenu(): void {
+    if (this.net) {
+      // walking out of a live match counts as dropping out: leave the loot behind for the others
+      const p = this.player;
+      if (p.alive && p.mode !== 'plane') {
+        this.leaving = true;
+        this.onKill(p, null, '이탈', false, 0);
+      }
+      this.net.leave();
+      this.net = null;
+    }
     this.zone.stop();
     this.plane.stop();
     this.audio.setEngine(0);
@@ -289,6 +474,11 @@ export class Game {
     this.bannerT = dur;
     this.store.emit({ banner: text, bannerSub: sub, bannerT: this.time });
   }
+  /** short status line under the crosshair */
+  notify(text: string): void {
+    this.toastT = 1.6;
+    this.store.set({ action: text, actionProgress: -1 });
+  }
   pickupToast(label: string): void {
     this.toastT = 1.6;
     this.store.set({ action: `획득: ${label}`, actionProgress: -1 });
@@ -296,11 +486,27 @@ export class Game {
 
   // ---------------------------------------------------------- game events
 
+  /** a hit this client landed on someone another client runs */
+  onRemoteDamage(victim: Character, from: Character, amount: number, part: BodyPart): void {
+    const dealt = Math.min(amount, Math.max(1, victim.hp));
+    from.damageDealt += dealt;
+    victim.lastHitBy = from;
+    victim.lastHitT = this.time;
+    if (from === this.player && amount >= 0.5) {
+      this.damageNumbers.push({ x: victim.pos.x, y: victim.pos.y + victim.height + 0.25, z: victim.pos.z, amount: dealt, head: part === 'head', t: this.time });
+      if (this.damageNumbers.length > 24) this.damageNumbers.shift();
+    }
+  }
+
   onDamage(victim: Character, from: Character | null, amount: number, part: BodyPart): void {
-    void part;
+    if (from === this.player && victim !== this.player && amount >= 0.5) {
+      this.damageNumbers.push({ x: victim.pos.x, y: victim.pos.y + victim.height + 0.25, z: victim.pos.z, amount, head: part === 'head', t: this.time });
+      if (this.damageNumbers.length > 24) this.damageNumbers.shift();
+    }
     if (victim === this.player) {
       this.hurtFlash = Math.min(1, this.hurtFlash + 0.25 + amount / 60);
       if (amount > 1.5) {
+        this.input.buzz(28);
         this.audio.ui('hurt');
         this.ctl.shakeAmp = Math.min(0.9, this.ctl.shakeAmp + 0.25 + amount / 90);
       }
@@ -309,6 +515,7 @@ export class Game {
         this.damageMarks.push({ angle, t: this.time });
         if (this.damageMarks.length > 6) this.damageMarks.shift();
       }
+      if (this.autoPlay && from) this.playerBot?.onHit(from);
     } else if (from) {
       this.bots[victim.id - 1]?.onHit(from);
     }
@@ -335,8 +542,10 @@ export class Game {
       if (head) killer.headshots++;
       if (dist > killer.longestKill) killer.longestKill = dist;
     }
-    // everything they carried ends up on the ground
-    const items = victim.spill();
+    // the owner of a character announces its death; the others just play it
+    if (this.net && !victim.remote) this.net.kill(victim, killer, weapon, head, dist);
+    // everything they carried ends up on the ground (in multiplayer the owner drops it for everyone)
+    const items = victim.remote ? [] : victim.spill();
     if (items.length && victim.pos.y > -1.2) {
       const b = this.world.buildingAt(victim.pos.x, victim.pos.z, victim.pos.y);
       const up = b >= 0 && victim.pos.y > this.world.buildings[b].y + 2;
@@ -357,6 +566,10 @@ export class Game {
       this.banner(`${victim.name} 처치`, `${this.player.kills} 킬${head ? ' · 헤드샷' : ''} · ${Math.round(dist)}m`, 2.6);
     }
     if (this.spectate === victim) this.spectateNext(killer);
+    if (victim === this.player && this.autoPlay) {
+      this.autoPlay = false;
+      this.store.emit({ autoPlay: false });
+    }
     if (victim === this.player) this.finish(false, killer && killer !== victim ? killer.name : weapon);
     else if (alive === 1 && this.player.alive) this.finish(true, '');
     if (alive <= 1) {
@@ -366,6 +579,7 @@ export class Game {
   }
 
   private finish(won: boolean, killer: string): void {
+    if (this.leaving) return;
     const p = this.player;
     if (won) {
       p.placement = 1;
@@ -390,6 +604,7 @@ export class Game {
   onPlayerHit(head: boolean, killed: boolean): void {
     this.hitT = this.time;
     this.hitHead = head;
+    this.input.buzz(killed ? 45 : head ? 18 : 8);
     if (!killed) this.audio.ui(head ? 'head' : 'hit');
   }
 
@@ -404,6 +619,8 @@ export class Game {
 
   noise(x: number, z: number, loud: number, src: Character | null): void {
     for (const b of this.bots) b.onNoise(x, z, loud, src);
+    if (this.autoPlay) this.playerBot?.onNoise(x, z, loud, src);
+    if (src !== this.player) this.soundCue(x, z, 'shot', loud * 0.7);
   }
 
   shake(x: number, y: number, z: number, amount: number): void {
@@ -471,7 +688,8 @@ export class Game {
         this.camera.fov = 55;
         this.camera.updateProjectionMatrix();
       }
-    } else if (live && !st.paused) {
+    } else if (live && (!st.paused || this.net)) {
+      // a multiplayer match keeps running behind the pause menu
       this.simulate(dt);
     }
     if (live) {
@@ -538,21 +756,23 @@ export class Game {
     this.plane.update(dt);
     if (this.plane.active && this.plane.progress > 0.93) {
       // nobody rides the aircraft off the map
-      for (const c of this.chars) if (c.mode === 'plane') this.jumpFromPlane(c);
+      for (const c of this.chars) if (c.mode === 'plane' && !c.remote) this.jumpFromPlane(c);
     }
     for (const c of this.chars) if (c.mode === 'plane') c.pos.copy(this.plane.pos);
 
     const ev = this.zone.update(dt, this.world, this.rng, this.camera.position);
-    if (ev === 'shrink') {
-      this.audio.ui('zone');
-      this.banner('폭풍이 좁혀옵니다', '안전 구역으로 이동하세요', 3.5);
-    } else if (ev === 'next') {
-      this.banner('새 안전 구역 지정', `${Math.round(this.zone.timer)}초 후 폭풍이 다시 움직입니다`, 3.5);
-    }
+    if (ev !== 'none') this.onZoneEvent(ev, true);
+    this.airdrops.update(dt, this.rng);
 
+    if (input.hit('KeyP') && st.phase !== 'dead' && st.phase !== 'won') this.setAutoPlay(!this.autoPlay);
     this.ctl.update(dt);
-    for (const b of this.bots) b.update(dt);
-    for (const c of this.chars) c.tick(dt);
+    if (this.autoPlay && this.player.alive) this.playerBot?.update(dt);
+    for (const b of this.bots) if (!b.c.remote) b.update(dt);
+    this.net?.apply(dt);
+    for (const c of this.chars) {
+      if (c.remote) c.tickRemote(dt);
+      else c.tick(dt);
+    }
     this.combat.update(dt);
 
     // storm damage
@@ -560,7 +780,7 @@ export class Game {
     if (dps > 0) {
       this.zoneTickT -= dt;
       for (const c of this.chars) {
-        if (!c.alive || c.mode !== 'ground') continue;
+        if (!c.alive || c.mode !== 'ground' || c.remote) continue;
         if (!this.zone.inside(c.pos.x, c.pos.z)) c.takeDamage(dps * dt, null, 'limb', '폭풍', 0);
       }
       if (this.zoneTickT <= 0) this.zoneTickT = 1;
@@ -585,7 +805,62 @@ export class Game {
     const pd = this.plane.active ? Math.hypot(this.plane.pos.x - this.camera.position.x, this.plane.pos.y - this.camera.position.y, this.plane.pos.z - this.camera.position.z) : 9999;
     this.audio.setEngine(this.plane.active ? clamp(1.1 - pd / 600, 0, 1) : 0);
     this.effects.setViewport(this.renderer.domElement.height, this.camera.fov);
+    this.net?.update(dt);
   }
+
+  /** storm transitions, from this client's own storm or the host's */
+  onZoneEvent(ev: 'shrink' | 'next', own: boolean): void {
+    if (ev === 'shrink') {
+      this.audio.ui('zone');
+      this.banner('폭풍이 좁혀옵니다', '안전 구역으로 이동하세요', 3.5);
+      return;
+    }
+    const z = this.zone;
+    // phases 1-3 also bring a supply drop inside the next circle (the host decides where)
+    if (own && z.phase >= 1 && z.phase <= 3) {
+      const at = this.airdrops.spawn(z.nx, z.nz, z.nr, this.rng);
+      if (at) {
+        this.net?.airdrop(at.x, at.z);
+        this.onAirdrop();
+        return;
+      }
+    }
+    this.banner('새 안전 구역 지정', `${Math.round(z.timer)}초 후 폭풍이 다시 움직입니다`, 3.5);
+  }
+  onAirdrop(): void {
+    this.banner('보급품 투하!', '빨간 연기를 따라가면 최고급 장비가 있습니다', 4);
+    this.audio.ui('zone');
+  }
+
+  /**
+   * Browsers stop animation frames in background tabs. In multiplayer the
+   * world must keep going for everyone else (the host runs all the bots), so
+   * a timer keeps simulating, without drawing, while the tab is hidden.
+   */
+  private onVisibility = (): void => {
+    if (document.hidden && this.net) {
+      this.bgLast = performance.now();
+      if (!this.bgTimer) this.bgTimer = window.setInterval(this.bgTick, 250);
+    } else {
+      if (this.bgTimer) window.clearInterval(this.bgTimer);
+      this.bgTimer = 0;
+      this.last = performance.now();
+    }
+  };
+  private bgTick = (): void => {
+    if (!this.net || !document.hidden || this.disposed) return;
+    const now = performance.now();
+    let t = Math.min(2, (now - this.bgLast) / 1000);
+    this.bgLast = now;
+    const ph = this.store.state.phase;
+    if (ph !== 'flight' && ph !== 'drop' && ph !== 'playing' && ph !== 'dead' && ph !== 'won') return;
+    while (t > 0.001) {
+      const s = Math.min(0.05, t);
+      this.simulate(s);
+      t -= s;
+    }
+    this.input.endFrame();
+  };
 
   private presentCharacters(dt: number): void {
     _pm.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse.copy(this.camera.matrixWorld).invert());
@@ -638,9 +913,11 @@ export class Game {
         continue;
       }
       const reserve = p.ammo[w.def.ammo];
-      if (!prev || prev.id !== w.def.id || prev.ammo !== w.ammo || prev.reserve !== reserve) {
+      const name = w.scope > 0 ? `${w.def.name} · ${SCOPES[w.scope].short}` : w.def.name;
+      const mode = w.def.auto ? (w.semi ? '단발' : '연사') : '';
+      if (!prev || prev.id !== w.def.id || prev.ammo !== w.ammo || prev.reserve !== reserve || prev.name !== name || prev.mode !== mode) {
         changed = true;
-        slots.push({ id: w.def.id, name: w.def.name, ammo: w.ammo, mag: w.def.mag, reserve });
+        slots.push({ id: w.def.id, name, ammo: w.ammo, mag: w.def.mag, reserve, mode });
       } else slots.push(prev);
     }
     let action = st.action;
@@ -723,6 +1000,10 @@ export class Game {
 
   dispose(): void {
     this.disposed = true;
+    this.net?.dispose();
+    this.net = null;
+    if (this.bgTimer) window.clearInterval(this.bgTimer);
+    document.removeEventListener('visibilitychange', this.onVisibility);
     cancelAnimationFrame(this.raf);
     window.removeEventListener('resize', this.resize);
     this.input.dispose();

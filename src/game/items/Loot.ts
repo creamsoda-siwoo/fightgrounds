@@ -4,6 +4,12 @@ import { getModels } from '../entities/Models';
 import type { LootSpot } from '../world/Structures';
 import { AMMO_STACK, ARMOR, WEAPONS, itemRarity, type AmmoType, type Item } from './defs';
 
+const SCOPE_TABLE: [number, number][][] = [
+  [[1, 45], [2, 35], [4, 17], [8, 3]],
+  [[1, 30], [2, 35], [4, 27], [8, 8]],
+  [[1, 15], [2, 30], [4, 37], [8, 18]],
+];
+
 export interface LootItem {
   id: number;
   item: Item;
@@ -53,6 +59,10 @@ const ARMOR_TABLE: [number, number][][] = [
 export class Loot {
   group = new THREE.Group();
   items: LootItem[] = [];
+  byId = new Map<number, LootItem>();
+  /** multiplayer hooks: fired for every item that appears or disappears */
+  onSpawn: ((li: LootItem) => void) | null = null;
+  onRemove: ((li: LootItem) => void) | null = null;
   private grid = new Map<number, LootItem[]>();
   private nextId = 1;
   private rings: THREE.InstancedMesh;
@@ -77,7 +87,9 @@ export class Loot {
   clear(): void {
     for (const it of this.items) this.group.remove(it.mesh);
     this.items.length = 0;
+    this.byId.clear();
     this.grid.clear();
+    this.nextId = 1;
     this.ringsDirty = true;
   }
 
@@ -95,7 +107,7 @@ export class Loot {
         k++;
       };
       for (let i = 0; i < rolls; i++) {
-        const cat = weighted(rng, [['weapon', 30 + tier * 4], ['ammo', 20], ['armor', 15 + tier * 3], ['heal', 22], ['grenade', 6 + tier], ['none', 5 - tier]] as [string, number][]);
+        const cat = weighted(rng, [['weapon', 30 + tier * 4], ['ammo', 20], ['armor', 15 + tier * 3], ['heal', 22], ['grenade', 6 + tier], ['scope', 9 + tier * 2], ['none', 5 - tier]] as [string, number][]);
         if (cat === 'weapon') {
           const id = weighted(rng, WEAPON_TABLE[tier]);
           const def = WEAPONS[id];
@@ -114,12 +126,19 @@ export class Loot {
           else put({ kind: h as 'medkit' | 'drink', n: 1 });
         } else if (cat === 'grenade') {
           put({ kind: 'grenade', n: 1 });
+        } else if (cat === 'scope') {
+          put({ kind: 'scope', n: weighted(rng, SCOPE_TABLE[tier]) });
         }
       }
     }
   }
 
-  spawn(item: Item, x: number, y: number, z: number, building = -1, upstairs = false): LootItem {
+  /** ids handed out from here on (multiplayer gives every client its own range) */
+  setIdBase(n: number): void {
+    this.nextId = n;
+  }
+
+  spawn(item: Item, x: number, y: number, z: number, building = -1, upstairs = false, id?: number): LootItem {
     const lib = getModels();
     let geo: THREE.BufferGeometry;
     let mat: THREE.Material = lib.gearMat;
@@ -158,6 +177,11 @@ export class Loot {
         geo = lib.drink;
         scale = 1.3;
         break;
+      case 'scope':
+        geo = lib.scopes[item.n];
+        mat = lib.weaponMat;
+        scale = 1.7;
+        break;
       default:
         geo = lib.grenade;
         yOff = 0.06;
@@ -171,8 +195,9 @@ export class Loot {
     mesh.matrixWorldNeedsUpdate = true;
     mesh.castShadow = false;
     mesh.visible = false;
-    const li: LootItem = { id: this.nextId++, item, x, y, z, building, upstairs, mesh, alive: true, claim: -1, claimT: 0 };
+    const li: LootItem = { id: id ?? this.nextId++, item, x, y, z, building, upstairs, mesh, alive: true, claim: -1, claimT: 0 };
     this.items.push(li);
+    this.byId.set(li.id, li);
     const k = this.key(x, z);
     const arr = this.grid.get(k);
     if (arr) arr.push(li);
@@ -180,6 +205,7 @@ export class Loot {
     this.group.add(mesh);
     this.ringsDirty = true;
     this.visT = 0;
+    this.onSpawn?.(li);
     return li;
   }
 
@@ -194,7 +220,9 @@ export class Loot {
     }
     const i = this.items.indexOf(li);
     if (i >= 0) this.items.splice(i, 1);
+    this.byId.delete(li.id);
     this.ringsDirty = true;
+    this.onRemove?.(li);
   }
 
   /** drop a pile of items around a point (death loot, swapped gear) */

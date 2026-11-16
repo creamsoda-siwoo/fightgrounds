@@ -194,12 +194,14 @@ export interface AnimInput {
   deadDir: number;
   /** recoil impulse added by the owner when firing */
   kick: number;
+  /** lean around cover, -1 left .. +1 right */
+  peek: number;
 }
 
 export function defaultAnim(): AnimInput {
   return {
     mode: 'ground', speed: 0, moveX: 0, moveZ: 1, crouch: false, sprint: false, grounded: true, pitch: 0, weapon: null, ads: false,
-    reload: -1, heal: -1, healKind: '', throwing: -1, punch: -1, deadT: 0, deadDir: 1, kick: 0,
+    reload: -1, heal: -1, healKind: '', throwing: -1, punch: -1, deadT: 0, deadDir: 1, kick: 0, peek: 0,
   };
 }
 
@@ -262,6 +264,8 @@ export class CharacterModel {
   bones: THREE.Bone[] = [];
   private weaponHolder = new THREE.Group();
   private weaponMesh: THREE.Mesh;
+  private scopeMesh: THREE.Mesh;
+  private curScope = 0;
   private backMesh: THREE.Mesh;
   private helmetMesh: THREE.Mesh;
   private vestMesh: THREE.Mesh;
@@ -317,6 +321,8 @@ export class CharacterModel {
     };
     this.weaponMesh = mk(lib.weapons.kestrel.geo, lib.weaponMat);
     this.weaponHolder.add(this.weaponMesh);
+    this.scopeMesh = mk(lib.scopes[1], lib.weaponMat);
+    this.weaponMesh.add(this.scopeMesh);
     this.bones[B.chest].add(this.weaponHolder);
     this.backMesh = mk(lib.weapons.kestrel.geo, lib.weaponMat);
     // slung flat across the pack, barrel up and to the left
@@ -346,12 +352,19 @@ export class CharacterModel {
     if (vest > 0) this.vestMesh.geometry = lib.vest[vest];
   }
 
-  setWeapons(active: string | null, back: string | null): void {
+  setWeapons(active: string | null, back: string | null, scope = 0): void {
     const lib = getModels();
-    if (active !== this.curWeapon) {
+    if (active !== this.curWeapon || scope !== this.curScope) {
+      this.curScope = scope;
       this.curWeapon = active;
       this.wm = active ? lib.weapons[active] : null;
       if (this.wm) this.weaponMesh.geometry = this.wm.geo;
+      const rail = this.wm?.rail;
+      this.scopeMesh.visible = !!rail && scope > 0;
+      if (rail && scope > 0) {
+        this.scopeMesh.geometry = lib.scopes[scope];
+        this.scopeMesh.position.copy(rail);
+      }
     }
     if (back !== this.curBack) {
       this.curBack = back;
@@ -432,8 +445,9 @@ export class CharacterModel {
     // aim pitch is spread over the spine so the whole torso follows the sights
     const pitch = a.mode === 'ground' ? clamp(a.pitch, -1.2, 1.2) : 0;
     const share = armed ? 0.3 : 0.14;
-    eulerQ(q[B.spine], -pitch * share - this.lean * 0.45, -twist * 0.45, 0);
-    eulerQ(q[B.chest], -pitch * share, -twist * 0.55 - sway * 0.6, -sway * 0.3);
+    const peek = a.mode === 'ground' ? a.peek : 0;
+    eulerQ(q[B.spine], -pitch * share - this.lean * 0.45, -twist * 0.45, peek * 0.24);
+    eulerQ(q[B.chest], -pitch * share, -twist * 0.55 - sway * 0.6, -sway * 0.3 + peek * 0.2);
     eulerQ(q[B.neck], -pitch * 0.12, 0, 0);
     eulerQ(q[B.head], -pitch * (armed ? 0.28 : 0.5) - this.lean * 0.35 + this.adsT * this.armedT * 0.1, 0, this.adsT * this.armedT * -0.16);
 
@@ -512,7 +526,7 @@ export class CharacterModel {
       const kick = this.kickT;
       const rel = a.reload >= 0 ? Math.sin(clamp(a.reload, 0, 1) * Math.PI) : 0;
       const aimPitch = -pitch + sp * 0.55 - kick * 0.05 + rel * 0.25;
-      eulerQ(_qw, aimPitch, sp * 0.6 + rel * 0.12, rel * -0.35 + sp * 0.25);
+      eulerQ(_qw, aimPitch, sp * 0.6 + rel * 0.12, rel * -0.35 + sp * 0.25 + peek * 0.3);
       const shoulderY = 1.47 - cr * 0.36 - bob - (HIP_REST - 0.96);
       const ox = two ? lerp(-0.125, -0.045, ads) : lerp(-0.1, -0.035, ads);
       const oy = two ? lerp(-0.1, 0.045, ads) : lerp(-0.06, 0.1, ads);
@@ -520,7 +534,8 @@ export class CharacterModel {
       _v1.set(ox + sp * 0.06, oy - sp * 0.12, oz - sp * 0.06 - kick * 0.035);
       _v1.applyQuaternion(_q2.setFromAxisAngle(X_AXIS, -pitch));
       _pw.set(0, shoulderY, cr * 0.1 + this.lean * 0.3).add(_v1);
-      _pw.y += Math.sin(this.idleT * 1.7) * 0.003 + mv * Math.sin(this.phase * Math.PI * 4) * 0.008;
+      _pw.y += Math.sin(this.idleT * 1.7) * 0.003 + mv * Math.sin(this.phase * Math.PI * 4) * 0.008 - Math.abs(peek) * 0.05;
+      _pw.x -= peek * 0.3;
       // attach to the chest
       this.weaponHolder.position.copy(_pw).sub(_pc).applyQuaternion(_qci);
       this.weaponHolder.quaternion.copy(_qci).multiply(_qw);

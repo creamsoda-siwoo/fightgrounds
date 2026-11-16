@@ -9,7 +9,7 @@ function fmt(t: number): string {
   return `${Math.floor(t / 60)}분 ${String(t % 60).padStart(2, '0')}초`;
 }
 
-export default function EndScreen({ result, name, onAgain, onMenu, onSpectate }: { result: MatchResult; name: string; onAgain: () => void; onMenu: () => void; onSpectate?: () => void }) {
+export default function EndScreen({ result, name, online, onAgain, onMenu, onSpectate }: { result: MatchResult; name: string; online?: boolean; onAgain: () => void; onMenu: () => void; onSpectate?: () => void }) {
   const [saved, setSaved] = useState<'saving' | 'online' | 'local'>('saving');
   const [refresh, setRefresh] = useState(0);
   const sent = useRef(false);
@@ -50,9 +50,9 @@ export default function EndScreen({ result, name, onAgain, onMenu, onSpectate }:
           {saved === 'local' && '이 기기에 기록되었습니다.'}
         </p>
         <div className="end-actions">
-          <button className="btn primary big" onClick={onAgain}>다시 강하</button>
+          <button className="btn primary big" onClick={onAgain}>{online ? '방으로' : '다시 강하'}</button>
           {onSpectate && <button className="btn" onClick={onSpectate}>관전하기</button>}
-          <button className="btn" onClick={onMenu}>로비로</button>
+          <button className="btn" onClick={onMenu}>{online ? '방 나가기' : '로비로'}</button>
         </div>
       </div>
       <Leaderboard refresh={refresh} limit={8} highlight={name} />

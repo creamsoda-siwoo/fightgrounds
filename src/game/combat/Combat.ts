@@ -14,6 +14,8 @@ interface Grenade {
   fuse: number;
   owner: Character;
   spin: number;
+  /** thrown by another client: shown here, but its damage is dealt over there */
+  visual: boolean;
 }
 
 const _hit: WorldHit = { t: 0, nx: 0, ny: 1, nz: 0, surf: 0, x: 0, y: 0, z: 0 };
@@ -99,7 +101,9 @@ export class Combat {
         continue;
       }
       const h = c.swimming ? 1.62 : c.height;
-      const th = raySphere(ox, oy, oz, dx, dy, dz, c.pos.x + c.fx() * 0.04, c.pos.y + h - 0.12, c.pos.z + c.fz() * 0.04, 0.128);
+      const px = -Math.cos(c.yaw) * c.peek * 0.32;
+      const pz = Math.sin(c.yaw) * c.peek * 0.32;
+      const th = raySphere(ox, oy, oz, dx, dy, dz, c.pos.x + c.fx() * 0.04 + px, c.pos.y + h - 0.12 - Math.abs(c.peek) * 0.06, c.pos.z + c.fz() * 0.04 + pz, 0.128);
       if (th >= 0 && th < out.t) {
         out.t = th;
         out.c = c;
@@ -145,6 +149,9 @@ export class Combat {
     _v.crossVectors(dir, _u);
 
     const player = game.player;
+    let sx = 0;
+    let sy = 0;
+    let sz = 0;
     for (let p = 0; p < def.pellets; p++) {
       const ang = spread * Math.sqrt(Math.random());
       const phi = Math.random() * Math.PI * 2;
@@ -187,6 +194,11 @@ export class Combat {
         ey = oy + _d.y * 700;
         ez = oz + _d.z * 700;
       }
+      if (p === 0) {
+        sx = ex;
+        sy = ey;
+        sz = ez;
+      }
       if ((p % 3 === 0) && (camDist < 500 || Math.hypot(ex - cam.x, ez - cam.z) < 300)) game.effects.tracer(_m.x, _m.y, _m.z, ex, ey, ez);
       // supersonic crack past the player's ear
       if (p === 0 && shooter !== player && player.alive) {
@@ -206,6 +218,56 @@ export class Combat {
     if (camDist < 320) game.effects.muzzle(_m.x, _m.y, _m.z, dir.x, dir.y, dir.z, def.kind === 'shotgun' || def.kind === 'sniper', camDist < 45);
     game.audio.shot(def.kind, shooter.pos.x, shooter.pos.y + 1.4, shooter.pos.z, shooter === player);
     game.noise(shooter.pos.x, shooter.pos.z, def.loudness, shooter);
+    game.net?.shot(shooter, sx, sy, sz);
+  }
+
+  /** another client's shot: flash, tracer, impact and sound, no damage (the shooter's client deals it) */
+  replayShot(shooter: Character, ex: number, ey: number, ez: number): void {
+    const game = this.game;
+    const w = shooter.weapon;
+    const kind = w ? w.def.kind : 'rifle';
+    shooter.sinceShot = 0;
+    shooter.anim.kick = Math.min(1.2, 0.35 + (w ? w.def.recoil : 1) * 0.3);
+    const ox = shooter.pos.x;
+    const oy = shooter.pos.y + shooter.eyeHeight();
+    const oz = shooter.pos.z;
+    if (shooter.lod <= 1) shooter.model.muzzleWorld(_m);
+    else _m.set(ox + shooter.fx() * 0.6, oy - 0.15, oz + shooter.fz() * 0.6);
+    _d.set(ex - _m.x, ey - _m.y, ez - _m.z);
+    const len = _d.length();
+    if (len < 0.01) return;
+    _d.multiplyScalar(1 / len);
+    const cam = game.camera.position;
+    const camDist = Math.hypot(ox - cam.x, oy - cam.y, oz - cam.z);
+    if (camDist < 500 || Math.hypot(ex - cam.x, ez - cam.z) < 300) game.effects.tracer(_m.x, _m.y, _m.z, ex, ey, ez);
+    if (Math.hypot(ex - cam.x, ey - cam.y, ez - cam.z) < 170) {
+      // find what the round struck to pick the right impact
+      if (game.world.raycast(_m.x, _m.y, _m.z, _d.x, _d.y, _d.z, len + 0.3, _hit)) {
+        game.effects.impact(_hit.x, _hit.y, _hit.z, _hit.nx, _hit.ny, _hit.nz, _hit.surf);
+        game.audio.impact(_hit.surf, _hit.x, _hit.y, _hit.z);
+      } else {
+        game.effects.impact(ex, ey, ez, -_d.x, 0.2, -_d.z, SURF_FLESH);
+        game.audio.impact(SURF_FLESH, ex, ey, ez);
+      }
+    }
+    if (camDist < 320) game.effects.muzzle(_m.x, _m.y, _m.z, _d.x, _d.y, _d.z, kind === 'shotgun' || kind === 'sniper', camDist < 45);
+    game.audio.shot(kind, ox, oy, oz, false);
+    if (w) game.noise(ox, oz, w.def.loudness, shooter);
+    // supersonic crack past the player's ear
+    const player = game.player;
+    if (player.alive && player !== shooter) {
+      const px = player.pos.x - _m.x;
+      const py = player.pos.y + 1.5 - _m.y;
+      const pz = player.pos.z - _m.z;
+      const tc = px * _d.x + py * _d.y + pz * _d.z;
+      if (tc > 2 && tc < len + 1) {
+        const cx = px - _d.x * tc;
+        const cy = py - _d.y * tc;
+        const cz = pz - _d.z * tc;
+        const miss = Math.hypot(cx, cy, cz);
+        if (miss < 2.4 && miss > 0.35) game.onNearMiss(-cx, -cz);
+      }
+    }
   }
 
   melee(attacker: Character): void {
@@ -235,34 +297,35 @@ export class Combat {
   }
 
   throwGrenade(c: Character): void {
+    c.aimDir(_d);
+    const speed = 17;
+    const x = c.pos.x + c.fx() * 0.4 - Math.cos(c.yaw) * 0.25;
+    const y = c.pos.y + c.eyeHeight() + 0.1;
+    const z = c.pos.z + c.fz() * 0.4 + Math.sin(c.yaw) * 0.25;
+    const vx = _d.x * speed + c.vel.x * 0.6;
+    const vy = _d.y * speed + 4.2;
+    const vz = _d.z * speed + c.vel.z * 0.6;
+    this.spawnGrenade(c, x, y, z, vx, vy, vz, false);
+    this.game.net?.grenade(c, x, y, z, vx, vy, vz);
+    if (c === this.game.player) this.game.audio.ui('throw');
+  }
+
+  spawnGrenade(owner: Character, x: number, y: number, z: number, vx: number, vy: number, vz: number, visual: boolean): void {
     const lib = getModels();
     const mesh = new THREE.Mesh(lib.grenade, lib.gearMat);
     mesh.castShadow = true;
     mesh.scale.setScalar(1.25);
     this.group.add(mesh);
-    c.aimDir(_d);
-    const speed = 17;
-    const g: Grenade = {
-      mesh,
-      x: c.pos.x + c.fx() * 0.4 - Math.cos(c.yaw) * 0.25,
-      y: c.pos.y + c.eyeHeight() + 0.1,
-      z: c.pos.z + c.fz() * 0.4 + Math.sin(c.yaw) * 0.25,
-      vx: _d.x * speed + c.vel.x * 0.6,
-      vy: _d.y * speed + 4.2,
-      vz: _d.z * speed + c.vel.z * 0.6,
-      fuse: 2.7,
-      owner: c,
-      spin: Math.random() * 6,
-    };
-    this.grenades.push(g);
-    if (c === this.game.player) this.game.audio.ui('throw');
+    this.grenades.push({ mesh, x, y, z, vx, vy, vz, fuse: 2.7, owner, spin: Math.random() * 6, visual });
   }
 
-  explode(x: number, y: number, z: number, owner: Character | null): void {
+  explode(x: number, y: number, z: number, owner: Character | null, visual = false): void {
     const game = this.game;
     game.effects.explosion(x, y, z);
     game.audio.explosion(x, y, z);
     game.noise(x, z, 420, owner);
+    game.shake(x, y, z, 1);
+    if (visual) return;
     const R = 9.5;
     for (const c of game.chars) {
       if (!c.alive || c.mode === 'plane') continue;
@@ -275,7 +338,6 @@ export class Combat {
       c.takeDamage(dmg, owner, 'body', '수류탄', d);
       if (owner === game.player && c !== owner) game.onPlayerHit(false, wasAlive && !c.alive);
     }
-    game.shake(x, y, z, 1);
   }
 
   update(dt: number): void {
@@ -286,7 +348,7 @@ export class Combat {
       if (g.fuse <= 0) {
         this.group.remove(g.mesh);
         this.grenades.splice(i, 1);
-        this.explode(g.x, g.y + 0.1, g.z, g.owner);
+        this.explode(g.x, g.y + 0.1, g.z, g.owner, g.visual);
         continue;
       }
       g.vy -= GRAVITY * dt;

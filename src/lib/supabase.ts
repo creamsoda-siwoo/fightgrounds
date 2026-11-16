@@ -37,6 +37,11 @@ function db(): SupabaseClient | null {
   return client;
 }
 
+/** shared client for Realtime rooms (multiplayer); null when Supabase is not configured */
+export function realtimeClient(): SupabaseClient | null {
+  return db();
+}
+
 export function scoreOf(r: MatchRow): number {
   return r.kills * 100 + (r.total_players - r.placement) * 12 + Math.floor(r.damage / 10) + (r.placement === 1 ? 500 : 0);
 }

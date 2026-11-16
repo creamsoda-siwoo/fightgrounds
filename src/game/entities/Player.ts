@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { clamp, damp, lerp } from '../core/math';
+import { angleDiff, clamp, damp, lerp } from '../core/math';
 import type { Game } from '../Game';
 import { WEAPONS, itemLabel } from '../items/defs';
 import type { LootItem } from '../items/Loot';
@@ -32,6 +32,17 @@ export class Player {
   nearList: LootItem[] = [];
   private specPos = new THREE.Vector3();
   private specDir = new THREE.Vector3(0, 0, 1);
+  /** keep running forward without holding W (= key / stick lock) */
+  autoRun = false;
+  /** camera-only yaw offset while holding Alt */
+  freeLook = 0;
+  private autoT = 0;
+  private autoTarget = false;
+  private lastShot = -9;
+  /** touch aim assist: nearest enemy close to the crosshair, and how close (radians) */
+  private assistTarget: Character | null = null;
+  private assistErr = 9;
+  private assistT = 0;
 
   constructor(private game: Game, public c: Character) {}
 
@@ -43,6 +54,8 @@ export class Player {
     this.near = null;
     this.scoped = false;
     this.camDist = 3;
+    this.autoRun = false;
+    this.freeLook = 0;
   }
 
   update(dt: number): void {
@@ -51,12 +64,31 @@ export class Player {
     const c = this.c;
     const free = game.uiOpen();
     // --- look
+    const looking = (input.down('AltLeft') || input.down('AltRight')) && !c.ads && c.alive;
     if (input.locked && !free) {
-      const zoom = c.ads && c.weapon ? c.weapon.def.zoom : 1;
-      const sens = (0.0021 * input.sensitivity) / (zoom > 1.6 ? zoom * 0.8 : 1);
-      this.yaw -= input.mouseDX * sens;
+      const zoom = c.ads && c.weapon ? c.zoom() : 1;
+      // touch: the view slows a little while it is on an enemy, which makes small corrections easy
+      const friction = input.touch && this.assistErr < 0.07 ? 0.6 : 1;
+      const sens = ((0.0021 * input.sensitivity) / (zoom > 1.6 ? zoom * 0.8 : 1)) * friction;
+      if (looking) this.freeLook = clamp(this.freeLook - input.mouseDX * sens, -2.4, 2.4);
+      else this.yaw -= input.mouseDX * sens;
       this.pitch = clamp(this.pitch - input.mouseDY * sens, -1.45, 1.45);
     }
+    if (!looking && this.freeLook !== 0) {
+      // swing the camera back behind the character
+      this.freeLook *= 1 - damp(12, dt);
+      if (Math.abs(this.freeLook) < 0.002) this.freeLook = 0;
+    }
+    if (game.autoPlay && c.alive && c.mode !== 'plane') {
+      // the AI is driving: the camera follows where it looks
+      this.yaw += angleDiff(this.yaw, c.yaw) * damp(6, dt);
+      this.pitch += (clamp(c.pitch * 0.7 - 0.08, -1, 0.8) - this.pitch) * damp(5, dt);
+      this.spread = c.spreadAngle();
+      return;
+    }
+    if (game.autoPlay && c.mode === 'plane') return;
+    if (input.touch && c.alive && c.mode === 'ground' && c.weapon && this.freeLook === 0 && !free) this.aimAssist(dt);
+    else this.assistErr = 9;
     if (this.recover > 0) {
       const r = Math.min(this.recover, dt * (this.recover * 9 + 0.03));
       this.pitch -= r;
@@ -66,8 +98,19 @@ export class Player {
       this.orbit += dt * 0.12;
       return;
     }
-    const fwd = (input.down('KeyW') ? 1 : 0) - (input.down('KeyS') ? 1 : 0);
-    const side = (input.down('KeyD') ? 1 : 0) - (input.down('KeyA') ? 1 : 0);
+    if (input.hit('Equal')) this.game.setAutoRun(!this.autoRun);
+    // on touch the stick itself presses W, so there the next stick touch cancels instead
+    else if (this.autoRun && !input.touch && (input.hit('KeyW') || input.hit('KeyS'))) this.game.setAutoRun(false);
+    let fwd = this.autoRun ? 1 : (input.down('KeyW') ? 1 : 0) - (input.down('KeyS') ? 1 : 0);
+    let side = (input.down('KeyD') ? 1 : 0) - (input.down('KeyA') ? 1 : 0);
+    // analog touch stick: any direction, speed follows how far it is pushed
+    let moveScale = 1;
+    const stick = Math.hypot(input.stickX, input.stickY);
+    if (input.touch && stick > 0.12 && !this.autoRun) {
+      fwd = -input.stickY;
+      side = input.stickX;
+      moveScale = clamp((stick - 0.12) / 0.6, 0.35, 1);
+    }
     const sy = Math.sin(this.yaw);
     const cy = Math.cos(this.yaw);
     // forward = (sin, cos), right = (-cos, sin)
@@ -125,9 +168,25 @@ export class Player {
         else jump = true;
       }
       const w = c.weapon;
-      c.sprint = input.down('ShiftLeft') && fwd > 0 && !c.crouch && !input.rmb && !c.heal && c.reloadT < 0;
-      c.ads = input.rmb && !!w && !c.sprint && c.reloadT < 0 && !c.heal && c.throwT < 0 && !c.swimming;
-      c.move(dt, wx, wz, wl > 0 ? c.moveSpeed() : 0, jump);
+      c.sprint = (input.down('ShiftLeft') || (this.autoRun && !input.down('ShiftLeft'))) && fwd > 0 && !c.crouch && !input.rmb && !c.heal && c.reloadT < 0;
+      if (this.autoRun && c.crouch) c.sprint = false;
+      c.ads = input.rmb && !looking && !!w && !c.sprint && c.reloadT < 0 && !c.heal && c.throwT < 0 && !c.swimming;
+      // lean around corners (Q / E); stops short of walls
+      let peek = c.sprint || c.swimming ? 0 : (input.down('KeyE') ? 1 : 0) - (input.down('KeyQ') ? 1 : 0);
+      if (peek !== 0) {
+        const rx = -Math.cos(c.yaw) * peek;
+        const rz = Math.sin(c.yaw) * peek;
+        if (game.world.raycast(c.pos.x, c.pos.y + c.eyeHeight(), c.pos.z, rx, 0, rz, 0.75, _hit, false)) peek *= clamp((_hit.t - 0.3) / 0.45, 0, 1);
+      }
+      c.peek += (peek - c.peek) * damp(10, dt);
+      if (Math.abs(c.peek) < 0.002) c.peek = 0;
+      if (input.hit('KeyB') && w && w.def.auto) {
+        w.semi = !w.semi;
+        game.notify(w.semi ? '단발 사격으로 전환' : '연사 사격으로 전환');
+        game.audio.ui('click');
+      }
+      if (input.mmbHit()) game.placePing();
+      c.move(dt, wx, wz, wl > 0 ? c.moveSpeed() * moveScale : 0, jump);
       if (wl > 0 && c.heal && c.sprint) c.cancelHeal();
 
       // weapons
@@ -148,10 +207,24 @@ export class Player {
         else this.heal('drink');
       }
       if (w) {
-        const trigger = w.def.auto ? input.lmb : input.lmbHit();
+        const full = w.def.auto && !w.semi;
+        let trigger = !looking && (full ? input.lmb : input.lmbHit());
+        // auto-fire: pull the trigger while the crosshair rests on an enemy
+        if (game.autoFire && !looking && !c.heal && c.throwT < 0 && !c.swimming && c.reloadT < 0) {
+          this.autoT -= dt;
+          if (this.autoT <= 0) {
+            this.autoT = 0.06;
+            this.autoTarget = this.crosshairOnEnemy();
+          }
+          const cadence = full ? 0 : Math.max(0.22, 60 / w.def.rpm);
+          if (this.autoTarget && w.ammo > 0 && game.time - this.lastShot >= cadence) trigger = true;
+        } else this.autoTarget = false;
         if (trigger) {
           if (c.heal) c.cancelHeal();
-          if (c.canFire()) this.shoot();
+          if (c.canFire()) {
+            this.shoot();
+            this.lastShot = game.time;
+          }
           else if (w.ammo <= 0 && c.reloadT < 0 && input.lmbHit()) {
             if (!c.startReload()) game.audio.ui('empty');
           }
@@ -164,7 +237,8 @@ export class Player {
     } else {
       c.sprint = false;
       c.ads = false;
-      c.move(dt, 0, 0, 0, false);
+      c.peek *= 1 - damp(10, dt);
+      c.move(dt, this.autoRun ? wx : 0, this.autoRun ? wz : 0, this.autoRun ? c.moveSpeed() : 0, false);
     }
     this.spread = c.spreadAngle();
 
@@ -271,8 +345,77 @@ export class Player {
       c.reloadT = -1;
     }
     c.syncModel();
-    this.game.loot.scatter([{ kind: 'weapon', sub: w.def.id, n: w.ammo }], c.pos.x + c.fx() * 0.9, c.pos.y, c.pos.z + c.fz() * 0.9, c.inBuilding, false);
+    this.game.loot.scatter(w.scope > 0 ? [{ kind: 'weapon', sub: w.def.id, n: w.ammo }, { kind: 'scope', n: w.scope }] : [{ kind: 'weapon', sub: w.def.id, n: w.ammo }], c.pos.x + c.fx() * 0.9, c.pos.y, c.pos.z + c.fz() * 0.9, c.inBuilding, false);
     this.game.audio.ui('equip');
+  }
+
+  /**
+   * Light aim assist for touch screens: find the enemy nearest the crosshair
+   * (within about 7 degrees, in range and in sight) and ease the view onto it.
+   */
+  private aimAssist(dt: number): void {
+    const game = this.game;
+    const c = this.c;
+    const w = c.weapon!;
+    const cam = game.camera.position;
+    this.assistT -= dt;
+    if (this.assistT <= 0) {
+      this.assistT = 0.12;
+      this.assistTarget = null;
+      const range = Math.min(w.def.falloffEnd, w.def.botRange * 3.5);
+      const cp = Math.cos(this.pitch);
+      const fx = Math.sin(this.yaw) * cp;
+      const fy = Math.sin(this.pitch);
+      const fz = Math.cos(this.yaw) * cp;
+      let best = 0.12;
+      for (const o of game.chars) {
+        if (o === c || !o.alive || o.mode !== 'ground') continue;
+        const tx = o.pos.x - cam.x;
+        const ty = o.pos.y + o.height * 0.62 - cam.y;
+        const tz = o.pos.z - cam.z;
+        const d = Math.hypot(tx, ty, tz);
+        if (d < 1.5 || d > range) continue;
+        const ang = Math.acos(clamp((tx * fx + ty * fy + tz * fz) / d, -1, 1));
+        if (ang >= best) continue;
+        if (!game.world.clearLine(cam.x, cam.y, cam.z, o.pos.x, o.pos.y + o.height * 0.62, o.pos.z)) continue;
+        best = ang;
+        this.assistTarget = o;
+      }
+    }
+    const t = this.assistTarget;
+    if (!t || !t.alive) {
+      this.assistErr = 9;
+      return;
+    }
+    const tx = t.pos.x - cam.x;
+    const ty = t.pos.y + t.height * 0.62 - cam.y;
+    const tz = t.pos.z - cam.z;
+    const ey = angleDiff(this.yaw, Math.atan2(tx, tz));
+    const ep = Math.atan2(ty, Math.hypot(tx, tz)) - this.pitch;
+    const err = Math.hypot(ey, ep);
+    this.assistErr = err;
+    if (err > 0.12) return;
+    const k = damp(c.ads ? 5 : 3.5, dt) * (1 - err / 0.12) * 0.6;
+    this.yaw += ey * k;
+    this.pitch += ep * k;
+  }
+
+  /** is the centre of the screen on a living enemy within this gun's useful range? */
+  private crosshairOnEnemy(): boolean {
+    const c = this.c;
+    const w = c.weapon;
+    if (!w) return false;
+    const game = this.game;
+    const cam = game.camera;
+    cam.getWorldDirection(_f);
+    const skip = this.scoped ? 0.2 : this.camDist + 0.35;
+    const ox = cam.position.x + _f.x * skip;
+    const oy = cam.position.y + _f.y * skip;
+    const oz = cam.position.z + _f.z * skip;
+    let dist = Math.min(w.def.falloffEnd, w.def.botRange * 3.5);
+    if (game.world.raycast(ox, oy, oz, _f.x, _f.y, _f.z, dist, _hit)) dist = _hit.t;
+    const ch = game.combat.rayChars(ox, oy, oz, _f.x, _f.y, _f.z, dist, c);
+    return !!ch.c && ch.c.mode === 'ground';
   }
 
   private shoot(): void {
@@ -292,9 +435,10 @@ export class Player {
     if (ch.c) dist = ch.t;
     _aim.set(ox + _f.x * dist, oy + _f.y * dist, oz + _f.z * dist);
     // bullets leave from the head line so cover behaves as it looks
-    const ex = c.pos.x - Math.cos(c.yaw) * 0.14;
-    const ey = c.pos.y + c.eyeHeight();
-    const ez = c.pos.z + Math.sin(c.yaw) * 0.14;
+    const lean = 0.14 + c.peek * 0.32;
+    const ex = c.pos.x - Math.cos(c.yaw) * lean;
+    const ey = c.pos.y + c.eyeHeight() - Math.abs(c.peek) * 0.06;
+    const ez = c.pos.z + Math.sin(c.yaw) * lean;
     _p.set(_aim.x - ex, _aim.y - ey, _aim.z - ez);
     if (_p.length() < 1.6) _p.copy(_f);
     _p.normalize();
@@ -315,7 +459,8 @@ export class Player {
     const c = this.c;
     const cam = game.camera;
     const cp = Math.cos(this.pitch);
-    _f.set(Math.sin(this.yaw) * cp, Math.sin(this.pitch), Math.cos(this.yaw) * cp);
+    const camYaw = this.yaw + this.freeLook;
+    _f.set(Math.sin(camYaw) * cp, Math.sin(this.pitch), Math.cos(camYaw) * cp);
     let targetFov = 66;
     this.scoped = false;
 
@@ -361,18 +506,20 @@ export class Player {
       }
     } else {
       const w = c.weapon;
-      const zoom = w ? w.def.zoom : 1;
-      this.adsT = lerp(this.adsT, c.ads ? 1 : 0, damp(c.ads ? 13 : 16, dt));
+      const zoom = w ? c.zoom() : 1;
+      const ads = c.ads && !game.autoPlay;
+      this.adsT = lerp(this.adsT, ads ? 1 : 0, damp(ads ? 18 : 20, dt));
       const eye = c.eyeHeight();
-      if (c.ads && zoom >= 3 && this.adsT > 0.75) {
+      if (ads && zoom >= 3 && this.adsT > 0.75) {
         // looking through the optic
         this.scoped = true;
-        cam.position.set(c.pos.x - Math.cos(c.yaw) * 0.05, c.pos.y + eye + 0.02, c.pos.z + Math.sin(c.yaw) * 0.05).addScaledVector(_f, 0.25);
+        const lx = 0.05 + c.peek * 0.32;
+        cam.position.set(c.pos.x - Math.cos(c.yaw) * lx, c.pos.y + eye + 0.02 - Math.abs(c.peek) * 0.06, c.pos.z + Math.sin(c.yaw) * lx).addScaledVector(_f, 0.25);
         targetFov = 66 / zoom;
         this.camDist = 0.2;
       } else {
-        const rx = -Math.cos(this.yaw);
-        const rz = Math.sin(this.yaw);
+        const rx = -Math.cos(camYaw);
+        const rz = Math.sin(camYaw);
         // keep the shoulder offset out of walls
         let sh = lerp(0.55, 0.66, this.adsT);
         const hx = c.pos.x;
@@ -380,7 +527,8 @@ export class Player {
         const hz = c.pos.z;
         if (game.world.raycast(hx, hy, hz, rx, 0, rz, sh + 0.25, _hit, false)) sh = Math.max(0, _hit.t - 0.25);
         this.shoulder = lerp(this.shoulder, sh, damp(14, dt));
-        _piv.set(hx + rx * this.shoulder, hy, hz + rz * this.shoulder);
+        const lean = this.shoulder + c.peek * 0.45;
+        _piv.set(hx + rx * lean, hy - Math.abs(c.peek) * 0.05, hz + rz * lean);
         let want = lerp(c.sprint ? 3.3 : 3.0, 1.35, this.adsT);
         if (c.swimming) want = 3.6;
         if (game.world.raycast(_piv.x, _piv.y, _piv.z, -_f.x, -_f.y, -_f.z, want + 0.3, _hit, false)) want = Math.max(0.3, _hit.t - 0.3);
@@ -394,6 +542,7 @@ export class Player {
     _p.copy(cam.position).add(_f);
     cam.up.set(0, 1, 0);
     cam.lookAt(_p);
+    if (c.peek !== 0 && c.alive && c.mode === 'ground') cam.rotateZ(-c.peek * 0.07);
     // trauma shake
     if (this.shakeAmp > 0.001) {
       this.shakeT += dt * 38;
@@ -403,7 +552,7 @@ export class Player {
       cam.rotation.z += Math.sin(this.shakeT * 2.1) * 0.03 * s;
       this.shakeAmp = Math.max(0, this.shakeAmp - dt * 2.4);
     }
-    this.fov = lerp(this.fov, targetFov, damp(this.scoped ? 30 : 12, dt));
+    this.fov = lerp(this.fov, targetFov, damp(this.scoped ? 30 : 16, dt));
     if (Math.abs(cam.fov - this.fov) > 0.01) {
       cam.fov = this.fov;
       cam.updateProjectionMatrix();
