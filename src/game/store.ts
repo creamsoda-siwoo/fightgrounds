@@ -80,6 +80,11 @@ export interface HudState {
   fps: number;
   autoPlay: boolean;
   autoRun: boolean;
+  /** multiplayer match */
+  online: boolean;
+  roomCode: string;
+  /** people (not bots) who started this match */
+  humans: number;
 }
 
 type Listener = () => void;
@@ -94,6 +99,7 @@ export class HudStore {
     alive: 0, kills: 0, zoneState: 'idle', zoneTimer: 0, zonePhase: 0, outside: false,
     prompt: '', action: '', actionProgress: 0, feed: [], banner: '', bannerSub: '', bannerT: 0,
     scoped: false, inventory: false, map: false, near: [], result: null, location: '', canJump: false, spectating: '', fps: 0, autoPlay: false, autoRun: false,
+    online: false, roomCode: '', humans: 1,
   };
   private listeners = new Set<Listener>();
   private dirty = false;

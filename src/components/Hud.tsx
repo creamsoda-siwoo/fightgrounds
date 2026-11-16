@@ -271,10 +271,11 @@ export default function Hud({ game, s }: { game: Game; s: HudState }) {
           {s.paused && (
             <div className="pause" onClick={() => game.resume()}>
               <div className="pause-card" onClick={(e) => e.stopPropagation()}>
-                <h2>일시 정지</h2>
+                <h2>{s.online ? `멀티플레이 · 방 ${s.roomCode}` : '일시 정지'}</h2>
+                {s.online && <p className="pause-warn">함께 하는 경기는 멈추지 않습니다. 메뉴를 보는 동안에도 공격받을 수 있어요.</p>}
                 <button className="btn primary" onClick={() => game.resume()}>계속하기</button>
                 <PauseSettings game={game} quality={s.quality} />
-                <button className="btn" onClick={() => game.toMenu()}>로비로 나가기</button>
+                <button className="btn" onClick={() => game.toMenu()}>{s.online ? '경기 나가기 (방으로)' : '로비로 나가기'}</button>
                 <p>화면을 클릭해도 게임으로 돌아갑니다.</p>
               </div>
             </div>

@@ -2,7 +2,9 @@
 
 import { useState } from 'react';
 import { DIFFICULTY, QUALITY, TOTAL_PLAYERS, type Difficulty, type Quality } from '@/game/config';
+import type { Room } from '@/game/net/Room';
 import Leaderboard from './Leaderboard';
+import RoomPanel from './RoomPanel';
 
 const CONTROLS: [string, string][] = [
   ['W A S D', '이동'],
@@ -42,10 +44,17 @@ interface Props {
   onAutoFire: (v: boolean) => void;
   onDifficulty: (d: Difficulty) => void;
   onStart: () => void;
+  room: Room | null;
+  roomAvailable: boolean;
+  onCreateRoom: () => void;
+  onJoinRoom: (code: string) => void;
+  onLeaveRoom: () => void;
 }
 
 export default function Menu(p: Props) {
   const [tab, setTab] = useState<'board' | 'keys' | 'settings'>('board');
+  const [together, setTogether] = useState(false);
+  const showRoom = together || !!p.room;
   return (
     <div className="menu">
       <div className="menu-left">
@@ -54,6 +63,23 @@ export default function Menu(p: Props) {
           <h1>FIGHT<em>GROUNDS</em></h1>
           <p>폭풍이 조여 오는 해란 섬에 {TOTAL_PLAYERS}명이 강하합니다. 무기를 찾고, 안전 구역을 따라 이동하며, 마지막 한 명으로 살아남으세요.</p>
         </div>
+        {showRoom ? (
+          <RoomPanel
+            name={p.name}
+            room={p.room}
+            available={p.roomAvailable}
+            difficulty={p.difficulty}
+            onName={p.onName}
+            onDifficulty={p.onDifficulty}
+            onCreate={p.onCreateRoom}
+            onJoin={p.onJoinRoom}
+            onLeave={p.onLeaveRoom}
+            onBack={() => {
+              p.onLeaveRoom();
+              setTogether(false);
+            }}
+          />
+        ) : (
         <form
           className="start"
           onSubmit={(e) => {
@@ -70,11 +96,13 @@ export default function Menu(p: Props) {
               <button type="button" key={d} className={p.difficulty === d ? 'on' : ''} onClick={() => p.onDifficulty(d)}>{DIFFICULTY[d].label}</button>
             ))}
           </div>
+          <button type="button" className="btn together" onClick={() => setTogether(true)}>친구와 같이 하기 · 최대 4명</button>
           <span className="start-note">PC는 키보드·마우스, 모바일은 화면 터치 조작(가로 화면)</span>
           {p.fps > 0 && p.fps < 26 && p.quality !== 'low' && (
             <span className="start-note warn">현재 {p.fps} FPS — 설정 탭에서 그래픽 품질을 낮추면 더 부드럽게 플레이할 수 있습니다.</span>
           )}
         </form>
+        )}
       </div>
       <div className="menu-right">
         <nav className="tabs">

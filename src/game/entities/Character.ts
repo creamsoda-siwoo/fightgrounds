@@ -79,6 +79,10 @@ export class Character {
   inBuilding = -1;
   /** set by the game each frame: is the model close enough to animate */
   lod = 0;
+  /** multiplayer: run by another client, this one only plays it back */
+  remote = false;
+  /** multiplayer: the id every client agrees on */
+  netId = -1;
 
   constructor(public game: Game, public id: number, public name: string, public isPlayer: boolean, variant: number) {
     this.model = new CharacterModel(variant);
@@ -203,7 +207,11 @@ export class Character {
       this.grounded = false;
     }
     this.speed = Math.hypot(this.vel.x, this.vel.z);
-    // footsteps
+    this.footsteps(dt);
+  }
+
+  /** footstep sounds (and the HUD cue for nearby enemies) from the current speed */
+  footsteps(dt: number): void {
     if (this.grounded && this.speed > 1.2 && !this.swimming) {
       this.stepAcc += this.speed * dt;
       const stride = this.crouch ? 1.1 : 1.9;
@@ -321,6 +329,15 @@ export class Character {
 
   takeDamage(amount: number, from: Character | null, part: BodyPart, weapon: string, dist: number): number {
     if (!this.alive || amount <= 0) return 0;
+    if (this.remote) {
+      // another client owns this character: tell it, it applies armour and decides the outcome
+      const net = this.game.net;
+      if (net && from && !from.remote) {
+        net.hit(this, from, amount, part, weapon, dist);
+        this.game.onRemoteDamage(this, from, amount, part);
+      }
+      return amount;
+    }
     if (part === 'head' && this.helmet > 0) {
       const absorbed = amount * ARMOR[this.helmet].reduce;
       amount -= absorbed;
@@ -599,6 +616,19 @@ export class Character {
       this.punchT += dt / 0.4;
       if (this.punchT >= 1) this.punchT = -1;
     }
+  }
+
+  /** timers for a character another client runs: only enough to keep its animation moving */
+  tickRemote(dt: number): void {
+    this.sinceShot += dt;
+    if (!this.alive) {
+      this.deadT += dt;
+      return;
+    }
+    if (this.reloadT > 0) this.reloadT = Math.max(0, this.reloadT - dt);
+    if (this.heal) this.heal.t = Math.min(this.heal.dur, this.heal.t + dt);
+    if (this.throwT >= 0) this.throwT = Math.min(0.99, this.throwT + dt / 0.75);
+    if (this.punchT >= 0) this.punchT = Math.min(0.99, this.punchT + dt / 0.4);
   }
 
   /** push simulation state into the visual model */

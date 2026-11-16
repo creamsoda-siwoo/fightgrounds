@@ -7,6 +7,8 @@ import type { World } from './World';
  * The shrinking play area: a storm wall closes in on a sequence of ever
  * smaller circles. Anyone caught outside takes damage over time.
  */
+const STATES = ['idle', 'waiting', 'shrinking', 'final'] as const;
+
 export class Zone {
   cx = 0;
   cz = 0;
@@ -22,6 +24,8 @@ export class Zone {
   phase = 0;
   state: 'idle' | 'waiting' | 'shrinking' | 'final' = 'idle';
   timer = 0;
+  /** multiplayer clients follow the host's storm instead of advancing it themselves */
+  follower = false;
   mesh: THREE.Mesh;
   private mat: THREE.ShaderMaterial;
 
@@ -114,7 +118,8 @@ export class Zone {
     let ev: 'none' | 'shrink' | 'next' = 'none';
     if (this.state === 'waiting') {
       this.timer -= dt;
-      if (this.timer <= 0) {
+      if (this.timer <= 0 && this.follower) this.timer = 0;
+      else if (this.timer <= 0) {
         this.state = 'shrinking';
         this.timer = ZONE_PHASES[this.phase].shrink;
         this.sx = this.cx;
@@ -129,7 +134,8 @@ export class Zone {
       this.cx = lerp(this.sx, this.nx, t);
       this.cz = lerp(this.sz, this.nz, t);
       this.r = lerp(this.sr, this.nr, t);
-      if (this.timer <= 0) {
+      if (this.timer <= 0 && this.follower) this.timer = 0;
+      else if (this.timer <= 0) {
         this.cx = this.nx;
         this.cz = this.nz;
         this.r = this.nr;
@@ -151,6 +157,34 @@ export class Zone {
     this.mesh.position.set(this.cx, -20, this.cz);
     this.mesh.scale.set(this.r, 420, this.r);
     return ev;
+  }
+
+  /** compact state the host sends to everyone */
+  netState(): number[] {
+    const r = (v: number) => Math.round(v * 100) / 100;
+    return [this.phase, STATES.indexOf(this.state), r(this.timer), r(this.cx), r(this.cz), r(this.r), r(this.sx), r(this.sz), r(this.sr), r(this.nx), r(this.nz), r(this.nr)];
+  }
+
+  /** take over the host's storm; reports the transitions it implies */
+  applyNet(a: number[]): 'none' | 'shrink' | 'next' {
+    const prevPhase = this.phase;
+    const prevState = this.state;
+    this.phase = a[0];
+    this.state = STATES[a[1]] ?? 'waiting';
+    this.timer = a[2];
+    this.cx = a[3];
+    this.cz = a[4];
+    this.r = a[5];
+    this.sx = a[6];
+    this.sz = a[7];
+    this.sr = a[8];
+    this.nx = a[9];
+    this.nz = a[10];
+    this.nr = a[11];
+    this.mesh.visible = this.state !== 'idle';
+    if (this.phase > prevPhase && this.state === 'waiting') return 'next';
+    if (this.state === 'shrinking' && prevState === 'waiting') return 'shrink';
+    return 'none';
   }
 
   dps(): number {

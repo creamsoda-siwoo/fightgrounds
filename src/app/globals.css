@@ -508,3 +508,70 @@ button.inv-row:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); }
   .touch .minimap-hit { right: 12px; top: 42px; width: 92px; height: 92px; }
 }
 .is-touch .fire-mode { display: none; }
+
+/* ---------- multiplayer room */
+.start .btn.together { grid-column: 1 / -1; height: 44px; font-size: 14px; letter-spacing: 0.06em; }
+.room { display: grid; gap: 12px; max-width: 520px; }
+.room h2 { margin: 0; font-size: 22px; letter-spacing: 0.04em; }
+.room h2 small { font-size: 12px; font-weight: 600; color: var(--muted); margin-left: 8px; letter-spacing: 0.02em; }
+.room label, .room-label { font-size: 12px; font-weight: 700; letter-spacing: 0.2em; color: var(--muted); }
+.room-input {
+  height: 48px; padding: 0 16px; font-size: 17px; font-weight: 600; color: var(--text);
+  background: rgba(8, 11, 15, 0.7); border: 1px solid var(--line); border-radius: 4px; outline: none; user-select: text;
+}
+.room-input:focus { border-color: var(--amber); }
+.room-input.code { text-transform: uppercase; letter-spacing: 0.3em; font-weight: 800; }
+.room-join { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.room-join .btn { height: 48px; }
+.room-join .btn:disabled { opacity: 0.45; cursor: default; }
+.room-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+.room-head > div { display: grid; gap: 2px; }
+.room-code { font-size: 44px; font-weight: 900; letter-spacing: 0.22em; color: var(--amber); line-height: 1; }
+.room-members { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.room-members li {
+  display: grid; grid-template-columns: 52px 1fr auto; align-items: center; gap: 10px; padding: 9px 12px;
+  background: rgba(8, 11, 15, 0.6); border: 1px solid var(--line); border-radius: 4px;
+}
+.room-members li.me { border-color: rgba(255, 178, 62, 0.6); }
+.room-members li.empty { opacity: 0.45; }
+.room-members li em { font-style: normal; font-size: 12px; color: var(--muted); }
+.room-slot { font-size: 11px; font-weight: 800; letter-spacing: 0.12em; color: var(--amber); }
+.room-note { margin: 0; font-size: 13px; line-height: 1.5; color: var(--muted); }
+.room-note.warn { color: var(--amber); }
+.room-list { display: grid; gap: 4px; }
+.room-row {
+  display: grid; grid-template-columns: 70px 1fr auto; align-items: center; gap: 10px; padding: 9px 12px; text-align: left;
+  background: rgba(8, 11, 15, 0.6); border: 1px solid var(--line); border-radius: 4px;
+}
+.room-row:hover:not(:disabled) { border-color: var(--amber); }
+.room-row:disabled { opacity: 0.45; cursor: default; }
+.room-row b { letter-spacing: 0.18em; color: var(--amber); }
+.room-row em { font-style: normal; font-size: 12px; color: var(--muted); }
+.room-leave { justify-self: start; }
+.room .difficulty { display: flex; }
+.pause-warn { margin: -4px 0 4px; font-size: 13px; color: var(--amber); }
+@media (max-height: 520px) {
+  .room { gap: 7px; }
+  .room h2 { font-size: 17px; }
+  .room-code { font-size: 30px; }
+  .room-input, .room-join .btn { height: 38px; font-size: 15px; }
+  .room-members li, .room-row { padding: 5px 10px; }
+  .room .btn.big { padding: 10px 18px; font-size: 15px; }
+  .start .btn.together { height: 36px; }
+}
+@media (max-height: 520px) {
+  .menu-left:has(.room) .brand { display: none; }
+  .room-members { grid-template-columns: 1fr 1fr; }
+  .room-members li { grid-template-columns: 34px 1fr auto; gap: 6px; }
+  .room-head .btn { padding: 8px 12px; font-size: 13px; }
+  .brand-kicker { font-size: 10px; letter-spacing: 0.2em; margin-bottom: 8px; white-space: nowrap; }
+  .tabs button { white-space: nowrap; }
+  .board th, .board td { white-space: nowrap; padding: 5px 4px; font-size: 12px; }
+  .board th:nth-child(5), .board td:nth-child(5) { display: none; }
+}
+.room-members li b { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-height: 520px) {
+  .room-members li { grid-template-columns: 30px minmax(0, 1fr) auto; font-size: 14px; }
+  .room-members li em { font-size: 10px; }
+  .room-members li.empty b { font-size: 12px; }
+}

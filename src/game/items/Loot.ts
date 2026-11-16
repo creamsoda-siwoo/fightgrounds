@@ -59,6 +59,10 @@ const ARMOR_TABLE: [number, number][][] = [
 export class Loot {
   group = new THREE.Group();
   items: LootItem[] = [];
+  byId = new Map<number, LootItem>();
+  /** multiplayer hooks: fired for every item that appears or disappears */
+  onSpawn: ((li: LootItem) => void) | null = null;
+  onRemove: ((li: LootItem) => void) | null = null;
   private grid = new Map<number, LootItem[]>();
   private nextId = 1;
   private rings: THREE.InstancedMesh;
@@ -83,7 +87,9 @@ export class Loot {
   clear(): void {
     for (const it of this.items) this.group.remove(it.mesh);
     this.items.length = 0;
+    this.byId.clear();
     this.grid.clear();
+    this.nextId = 1;
     this.ringsDirty = true;
   }
 
@@ -127,7 +133,12 @@ export class Loot {
     }
   }
 
-  spawn(item: Item, x: number, y: number, z: number, building = -1, upstairs = false): LootItem {
+  /** ids handed out from here on (multiplayer gives every client its own range) */
+  setIdBase(n: number): void {
+    this.nextId = n;
+  }
+
+  spawn(item: Item, x: number, y: number, z: number, building = -1, upstairs = false, id?: number): LootItem {
     const lib = getModels();
     let geo: THREE.BufferGeometry;
     let mat: THREE.Material = lib.gearMat;
@@ -184,8 +195,9 @@ export class Loot {
     mesh.matrixWorldNeedsUpdate = true;
     mesh.castShadow = false;
     mesh.visible = false;
-    const li: LootItem = { id: this.nextId++, item, x, y, z, building, upstairs, mesh, alive: true, claim: -1, claimT: 0 };
+    const li: LootItem = { id: id ?? this.nextId++, item, x, y, z, building, upstairs, mesh, alive: true, claim: -1, claimT: 0 };
     this.items.push(li);
+    this.byId.set(li.id, li);
     const k = this.key(x, z);
     const arr = this.grid.get(k);
     if (arr) arr.push(li);
@@ -193,6 +205,7 @@ export class Loot {
     this.group.add(mesh);
     this.ringsDirty = true;
     this.visT = 0;
+    this.onSpawn?.(li);
     return li;
   }
 
@@ -207,7 +220,9 @@ export class Loot {
     }
     const i = this.items.indexOf(li);
     if (i >= 0) this.items.splice(i, 1);
+    this.byId.delete(li.id);
     this.ringsDirty = true;
+    this.onRemove?.(li);
   }
 
   /** drop a pile of items around a point (death loot, swapped gear) */

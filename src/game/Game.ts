@@ -10,8 +10,10 @@ import { OUTFITS } from './entities/CharacterModel';
 import { Plane } from './entities/Plane';
 import { Player } from './entities/Player';
 import { Input } from './Input';
-import { SCOPES, itemLabel, itemRarity } from './items/defs';
+import { SCOPES, itemLabel, itemRarity, type Item } from './items/defs';
 import { Loot } from './items/Loot';
+import { NetSync } from './net/NetSync';
+import type { Room, StartMsg } from './net/Room';
 import { PostFX } from './render/PostFX';
 import { HudStore, type FeedEntry, type SlotInfo } from './store';
 import { Airdrops } from './world/Airdrops';
@@ -79,6 +81,11 @@ export class Game {
   hitHead = false;
   killT = -9;
   damageMarks: DamageMark[] = [];
+  /** multiplayer match in progress (null when playing alone) */
+  net: NetSync | null = null;
+  private leaving = false;
+  private bgTimer = 0;
+  private bgLast = 0;
   private hurtFlash = 0;
   private raf = 0;
   private last = 0;
@@ -114,6 +121,8 @@ export class Game {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 0.5;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    // reading shader logs after every compile forces the GPU driver to finish synchronously
+    this.renderer.debug.checkShaderErrors = window.location.search.includes('debug');
     this.camera.far = q.viewDistance + 1200;
     this.input = new Input(canvas);
     this.combat = new Combat(this);
@@ -155,6 +164,9 @@ export class Game {
     this.post = new PostFX(this.renderer, this.scene, this.camera, q);
     this.resize();
     window.addEventListener('resize', this.resize);
+    this.store.emit({ progress: 0.96, progressLabel: '셰이더 준비 중' });
+    await new Promise((r) => setTimeout(r, 30));
+    this.warmShaders();
     // compile shaders up front so the first match does not hitch
     try {
       this.camera.position.set(300, 160, 300);
@@ -165,8 +177,72 @@ export class Game {
     }
     this.input.wantFree = true;
     this.store.emit({ phase: 'menu', progress: 1, progressLabel: '' });
+    document.addEventListener('visibilitychange', this.onVisibility);
     this.last = performance.now();
     if (!this.manual) this.raf = requestAnimationFrame(this.frame);
+  }
+
+  /**
+   * Draw one hidden frame with every kind of object in view (characters with
+   * gear and weapons, loot, the aircraft, a supply crate, the storm wall) so
+   * their shaders and shadow variants compile during loading instead of
+   * stalling the first seconds of a match.
+   */
+  private warmShaders(): void {
+    const cam = this.camera;
+    const y = Math.max(0, this.world.heightAt(0, 0)) + 60;
+    cam.position.set(0, y + 1.5, 9);
+    cam.lookAt(0, y + 0.8, 0);
+    cam.updateMatrixWorld();
+    this.chars.forEach((c, i) => {
+      const m = c.model;
+      m.group.visible = true;
+      m.group.position.set((i % 8) - 3.5, y, -Math.floor(i / 8) * 1.4);
+      m.setGear(1 + (i % 3), 1 + (i % 3));
+      m.setWeapons(i % 2 ? 'kestrel' : 'viper', 'longbow', i % 2 ? 4 : 0);
+      m.group.updateMatrixWorld(true);
+    });
+    this.plane.group.visible = true;
+    this.plane.group.position.set(0, y + 8, -40);
+    this.zone.mesh.visible = true;
+    this.zone.mesh.position.set(0, y - 10, -20);
+    this.zone.mesh.scale.set(14, 40, 14);
+    const kinds: Item[] = [
+      { kind: 'weapon', sub: 'kestrel', n: 30 }, { kind: 'ammo', sub: '5.56', n: 30 }, { kind: 'helmet', n: 2 }, { kind: 'vest', n: 2 },
+      { kind: 'bandage', n: 3 }, { kind: 'medkit', n: 1 }, { kind: 'drink', n: 1 }, { kind: 'grenade', n: 1 }, { kind: 'scope', n: 4 },
+    ];
+    kinds.forEach((it, i) => {
+      this.loot.spawn(it, i - 4, y, 4).mesh.visible = true;
+    });
+    this.loot.update(0, cam.position, 1e4);
+    this.airdrops.spawnAt(0, 0);
+    this.airdrops.drops[0]?.group.position.set(5, y, 1);
+    try {
+      // centres the sun's shadow box on the camera so shadow shaders compile too
+      this.world.update(0, cam);
+      this.post.render(0);
+      // the scenery's shadow shaders only appear near the ground: a town and the woods
+      const site = this.world.sites[0];
+      for (const [x, z] of [[site.x + 4, site.z + 4], [site.x * 0.5 + 120, site.z * 0.5 - 90]]) {
+        const h = Math.max(0, this.world.heightAt(x, z));
+        cam.position.set(x, h + 1.7, z);
+        cam.lookAt(x + 10, h + 1.2, z + 10);
+        cam.updateMatrixWorld();
+        this.world.update(0, cam);
+        this.post.render(0);
+      }
+    } catch {
+      /* non fatal */
+    }
+    for (const c of this.chars) {
+      c.model.group.visible = false;
+      c.model.setGear(0, 0);
+      c.model.setWeapons(null, null);
+    }
+    this.plane.group.visible = false;
+    this.zone.mesh.visible = false;
+    this.loot.clear();
+    this.airdrops.clear();
   }
 
   private resize = (): void => {
@@ -183,14 +259,19 @@ export class Game {
 
   // ------------------------------------------------------------ match flow
 
-  startMatch(name: string): void {
+  startMatch(name: string, online?: { room: Room; start: StartMsg; slot: number }): void {
+    this.net?.leave();
+    this.net = null;
     this.playerName = name.trim().slice(0, 16) || '플레이어';
     this.player.name = this.playerName;
-    this.matchSeed = (Date.now() ^ (Math.random() * 1e9)) >>> 0;
+    if (online) this.difficulty = online.start.difficulty;
+    this.matchSeed = online ? online.start.seed : (Date.now() ^ (Math.random() * 1e9)) >>> 0;
     this.rng = mulberry32(this.matchSeed);
     this.audio.resume();
     this.loot.clear();
+    // every client builds the same loot from the shared seed
     this.loot.populate(this.world.lootSpots, this.matchSeed);
+    if (online) this.loot.setIdBase(1_000_000 * (online.slot + 1));
     this.effects.clear();
     this.combat.clear();
     this.airdrops.clear();
@@ -207,6 +288,9 @@ export class Game {
     for (const c of this.chars) {
       c.reset();
       c.pos.copy(this.plane.pos);
+      c.remote = false;
+      c.netId = c.id;
+      if (c !== this.player) c.name = BOT_NAMES[(c.id - 1) % BOT_NAMES.length];
     }
     // every bot picks somewhere to land that the flight path can reach
     for (const b of this.bots) {
@@ -215,6 +299,12 @@ export class Game {
     }
     this.soundMarks.length = 0;
     this.ping = null;
+    if (online) {
+      this.net = new NetSync(this, online.room, online.start, online.slot);
+      const humans = online.start.roster.length;
+      for (const c of this.chars) if (c.netId >= humans) c.name = BOT_NAMES[(c.netId - 1) % BOT_NAMES.length];
+    }
+    this.leaving = false;
     this.ctl.reset();
     this.ctl.yaw = Math.atan2(this.plane.dir.x, this.plane.dir.z);
     this.input.wantFree = false;
@@ -222,6 +312,7 @@ export class Game {
     this.store.emit({
       phase: 'flight', paused: false, result: null, feed: [], kills: 0, alive: TOTAL_PLAYERS, inventory: false, map: false,
       banner: '강하 지점을 선택하세요', bannerSub: 'F 키로 수송기에서 뛰어내립니다', bannerT: 1, prompt: '', hp: 100, boost: 0, near: [], spectating: '',
+      online: !!online, roomCode: online ? online.room.code : '', humans: online ? online.start.roster.length : 1,
     });
     this.bannerT = 5;
   }
@@ -313,6 +404,16 @@ export class Game {
   }
 
   toMenu(): void {
+    if (this.net) {
+      // walking out of a live match counts as dropping out: leave the loot behind for the others
+      const p = this.player;
+      if (p.alive && p.mode !== 'plane') {
+        this.leaving = true;
+        this.onKill(p, null, '이탈', false, 0);
+      }
+      this.net.leave();
+      this.net = null;
+    }
     this.zone.stop();
     this.plane.stop();
     this.audio.setEngine(0);
@@ -385,6 +486,18 @@ export class Game {
 
   // ---------------------------------------------------------- game events
 
+  /** a hit this client landed on someone another client runs */
+  onRemoteDamage(victim: Character, from: Character, amount: number, part: BodyPart): void {
+    const dealt = Math.min(amount, Math.max(1, victim.hp));
+    from.damageDealt += dealt;
+    victim.lastHitBy = from;
+    victim.lastHitT = this.time;
+    if (from === this.player && amount >= 0.5) {
+      this.damageNumbers.push({ x: victim.pos.x, y: victim.pos.y + victim.height + 0.25, z: victim.pos.z, amount: dealt, head: part === 'head', t: this.time });
+      if (this.damageNumbers.length > 24) this.damageNumbers.shift();
+    }
+  }
+
   onDamage(victim: Character, from: Character | null, amount: number, part: BodyPart): void {
     if (from === this.player && victim !== this.player && amount >= 0.5) {
       this.damageNumbers.push({ x: victim.pos.x, y: victim.pos.y + victim.height + 0.25, z: victim.pos.z, amount, head: part === 'head', t: this.time });
@@ -429,8 +542,10 @@ export class Game {
       if (head) killer.headshots++;
       if (dist > killer.longestKill) killer.longestKill = dist;
     }
-    // everything they carried ends up on the ground
-    const items = victim.spill();
+    // the owner of a character announces its death; the others just play it
+    if (this.net && !victim.remote) this.net.kill(victim, killer, weapon, head, dist);
+    // everything they carried ends up on the ground (in multiplayer the owner drops it for everyone)
+    const items = victim.remote ? [] : victim.spill();
     if (items.length && victim.pos.y > -1.2) {
       const b = this.world.buildingAt(victim.pos.x, victim.pos.z, victim.pos.y);
       const up = b >= 0 && victim.pos.y > this.world.buildings[b].y + 2;
@@ -464,6 +579,7 @@ export class Game {
   }
 
   private finish(won: boolean, killer: string): void {
+    if (this.leaving) return;
     const p = this.player;
     if (won) {
       p.placement = 1;
@@ -572,7 +688,8 @@ export class Game {
         this.camera.fov = 55;
         this.camera.updateProjectionMatrix();
       }
-    } else if (live && !st.paused) {
+    } else if (live && (!st.paused || this.net)) {
+      // a multiplayer match keeps running behind the pause menu
       this.simulate(dt);
     }
     if (live) {
@@ -639,31 +756,23 @@ export class Game {
     this.plane.update(dt);
     if (this.plane.active && this.plane.progress > 0.93) {
       // nobody rides the aircraft off the map
-      for (const c of this.chars) if (c.mode === 'plane') this.jumpFromPlane(c);
+      for (const c of this.chars) if (c.mode === 'plane' && !c.remote) this.jumpFromPlane(c);
     }
     for (const c of this.chars) if (c.mode === 'plane') c.pos.copy(this.plane.pos);
 
     const ev = this.zone.update(dt, this.world, this.rng, this.camera.position);
-    if (ev === 'shrink') {
-      this.audio.ui('zone');
-      this.banner('폭풍이 좁혀옵니다', '안전 구역으로 이동하세요', 3.5);
-    } else if (ev === 'next') {
-      const z = this.zone;
-      // phases 1-3 also bring a supply drop inside the next circle
-      if (z.phase >= 1 && z.phase <= 3 && this.airdrops.spawn(z.nx, z.nz, z.nr, this.rng)) {
-        this.banner('보급품 투하!', '빨간 연기를 따라가면 최고급 장비가 있습니다', 4);
-        this.audio.ui('zone');
-      } else {
-        this.banner('새 안전 구역 지정', `${Math.round(z.timer)}초 후 폭풍이 다시 움직입니다`, 3.5);
-      }
-    }
+    if (ev !== 'none') this.onZoneEvent(ev, true);
     this.airdrops.update(dt, this.rng);
 
     if (input.hit('KeyP') && st.phase !== 'dead' && st.phase !== 'won') this.setAutoPlay(!this.autoPlay);
     this.ctl.update(dt);
     if (this.autoPlay && this.player.alive) this.playerBot?.update(dt);
-    for (const b of this.bots) b.update(dt);
-    for (const c of this.chars) c.tick(dt);
+    for (const b of this.bots) if (!b.c.remote) b.update(dt);
+    this.net?.apply(dt);
+    for (const c of this.chars) {
+      if (c.remote) c.tickRemote(dt);
+      else c.tick(dt);
+    }
     this.combat.update(dt);
 
     // storm damage
@@ -671,7 +780,7 @@ export class Game {
     if (dps > 0) {
       this.zoneTickT -= dt;
       for (const c of this.chars) {
-        if (!c.alive || c.mode !== 'ground') continue;
+        if (!c.alive || c.mode !== 'ground' || c.remote) continue;
         if (!this.zone.inside(c.pos.x, c.pos.z)) c.takeDamage(dps * dt, null, 'limb', '폭풍', 0);
       }
       if (this.zoneTickT <= 0) this.zoneTickT = 1;
@@ -696,7 +805,62 @@ export class Game {
     const pd = this.plane.active ? Math.hypot(this.plane.pos.x - this.camera.position.x, this.plane.pos.y - this.camera.position.y, this.plane.pos.z - this.camera.position.z) : 9999;
     this.audio.setEngine(this.plane.active ? clamp(1.1 - pd / 600, 0, 1) : 0);
     this.effects.setViewport(this.renderer.domElement.height, this.camera.fov);
+    this.net?.update(dt);
   }
+
+  /** storm transitions, from this client's own storm or the host's */
+  onZoneEvent(ev: 'shrink' | 'next', own: boolean): void {
+    if (ev === 'shrink') {
+      this.audio.ui('zone');
+      this.banner('폭풍이 좁혀옵니다', '안전 구역으로 이동하세요', 3.5);
+      return;
+    }
+    const z = this.zone;
+    // phases 1-3 also bring a supply drop inside the next circle (the host decides where)
+    if (own && z.phase >= 1 && z.phase <= 3) {
+      const at = this.airdrops.spawn(z.nx, z.nz, z.nr, this.rng);
+      if (at) {
+        this.net?.airdrop(at.x, at.z);
+        this.onAirdrop();
+        return;
+      }
+    }
+    this.banner('새 안전 구역 지정', `${Math.round(z.timer)}초 후 폭풍이 다시 움직입니다`, 3.5);
+  }
+  onAirdrop(): void {
+    this.banner('보급품 투하!', '빨간 연기를 따라가면 최고급 장비가 있습니다', 4);
+    this.audio.ui('zone');
+  }
+
+  /**
+   * Browsers stop animation frames in background tabs. In multiplayer the
+   * world must keep going for everyone else (the host runs all the bots), so
+   * a timer keeps simulating, without drawing, while the tab is hidden.
+   */
+  private onVisibility = (): void => {
+    if (document.hidden && this.net) {
+      this.bgLast = performance.now();
+      if (!this.bgTimer) this.bgTimer = window.setInterval(this.bgTick, 250);
+    } else {
+      if (this.bgTimer) window.clearInterval(this.bgTimer);
+      this.bgTimer = 0;
+      this.last = performance.now();
+    }
+  };
+  private bgTick = (): void => {
+    if (!this.net || !document.hidden || this.disposed) return;
+    const now = performance.now();
+    let t = Math.min(2, (now - this.bgLast) / 1000);
+    this.bgLast = now;
+    const ph = this.store.state.phase;
+    if (ph !== 'flight' && ph !== 'drop' && ph !== 'playing' && ph !== 'dead' && ph !== 'won') return;
+    while (t > 0.001) {
+      const s = Math.min(0.05, t);
+      this.simulate(s);
+      t -= s;
+    }
+    this.input.endFrame();
+  };
 
   private presentCharacters(dt: number): void {
     _pm.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse.copy(this.camera.matrixWorld).invert());
@@ -836,6 +1000,10 @@ export class Game {
 
   dispose(): void {
     this.disposed = true;
+    this.net?.dispose();
+    this.net = null;
+    if (this.bgTimer) window.clearInterval(this.bgTimer);
+    document.removeEventListener('visibilitychange', this.onVisibility);
     cancelAnimationFrame(this.raf);
     window.removeEventListener('resize', this.resize);
     this.input.dispose();
