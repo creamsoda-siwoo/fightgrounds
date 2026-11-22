@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { GeoBuilder } from '../core/GeoBuilder';
-import { clamp, damp, lerp } from '../core/math';
+import { clamp, damp, lerp, smoothstep } from '../core/math';
 import { getModels, type WeaponModel } from './Models';
 
 /**
@@ -287,6 +287,19 @@ export class CharacterModel {
   private tq: THREE.Quaternion[] = [];
   private hipPos = new THREE.Vector3(0, HIP_REST, 0);
   private lean = 0;
+  // gait state
+  private spd = 0;
+  private prevSpd = 0;
+  private accLean = 0;
+  private turn = 0;
+  private prevYaw = Number.NaN;
+  private airT = 0;
+  private gndT = 0;
+  private landV = 0;
+  private feet = [
+    { along: 0, lift: 0, pitch: 0, raise: 0, fwd: 0, u: -1 },
+    { along: 0, lift: 0, pitch: 0, raise: 0, fwd: 0, u: -1 },
+  ];
 
   constructor(variant: number) {
     const lib = getModels();
@@ -381,6 +394,48 @@ export class CharacterModel {
     return out.copy(this.muzzle).applyQuaternion(this.pivot.quaternion).add(this.pivot.position).applyQuaternion(this.group.quaternion).add(this.group.position);
   }
 
+  /**
+   * One foot's place in the step cycle. Stance (f < duty) sweeps the foot
+   * backwards at exactly the body's speed so it stays planted, rolling from
+   * heel strike to toe-off; swing carries it forward on an arc.
+   */
+  private footCycle(i: number, f: number, A: number, duty: number, liftH: number, runW: number): void {
+    const o = this.feet[i];
+    const roll = Math.min(1, A * 6);
+    const strike = (1 - runW) * 0.26 * roll;
+    const push = (0.45 + 0.35 * runW) * roll;
+    let pivotW = 1;
+    if (f < duty) {
+      const u = f / duty;
+      o.u = u;
+      o.along = A * (1 - 2 * u);
+      o.lift = 0;
+      // walkers land on the heel with the toes up, everyone rolls onto the toes to push off
+      o.pitch = u < 0.18 ? -strike * (1 - u / 0.18) : u > 0.62 ? ((u - 0.62) / 0.38) * push : 0;
+    } else {
+      const u = (f - duty) / (1 - duty);
+      o.u = -1;
+      const e = u * u * (3 - 2 * u);
+      o.along = -A + 2 * A * e;
+      // runners kick the heel up early in the swing
+      o.lift = liftH * Math.sin(Math.PI * Math.pow(u, lerp(1, 0.65, runW)));
+      o.pitch = (1 - u) * (1 - u) * push - u * u * strike;
+      // leave the toe pivot gradually and settle onto the heel pivot before contact
+      pivotW = Math.max(0, 1 - u / 0.4, (u - 0.6) / 0.4);
+    }
+    // the boot turns about the ball of the foot (heel up) or the heel (toes up),
+    // so the ankle moves with it while that point stays on the ground
+    const c = Math.cos(o.pitch);
+    const sn = Math.sin(o.pitch);
+    if (o.pitch >= 0) {
+      o.raise = (0.065 * (c - 1) + 0.17 * sn) * pivotW;
+      o.fwd = (0.065 * sn + 0.17 * (1 - c)) * pivotW;
+    } else {
+      o.raise = (0.065 * (c - 1) - 0.07 * sn) * pivotW;
+      o.fwd = (0.065 * sn + 0.07 * (c - 1)) * pivotW;
+    }
+  }
+
   update(dt: number, a: AnimInput): void {
     const q = this.tq;
     const bones = this.bones;
@@ -396,35 +451,97 @@ export class CharacterModel {
     this.kickT = Math.max(0, this.kickT - dt * 9) + a.kick;
     if (this.kickT > 1.4) this.kickT = 1.4;
     a.kick = 0;
-    if (moving) this.phase = (this.phase + dt * (0.6 + a.speed * 0.145)) % 1;
 
     const cr = this.crouchT;
     const mv = this.moveT;
-    const breathe = Math.sin(this.idleT * 1.7) * 0.004;
-    for (let i = 0; i < q.length; i++) q[i].identity();
+    const ground = a.mode === 'ground';
+
+    // ------------------------------------------------------------- gait
+    // how fast the body is turning (the owner sets the group's yaw before this runs)
+    const yaw = this.group.rotation.y;
+    if (dt > 0) {
+      const dy = Number.isNaN(this.prevYaw) ? 0 : Math.atan2(Math.sin(yaw - this.prevYaw), Math.cos(yaw - this.prevYaw));
+      this.turn = lerp(this.turn, clamp(dy / dt, -8, 8), damp(8, dt));
+    }
+    this.prevYaw = yaw;
+    // knees give a little when landing after time in the air
+    this.gndT = ground && a.grounded ? this.gndT + dt : 0;
+    if (ground && !a.grounded) this.airT += dt;
+    else {
+      if (ground && this.airT > 0.12) this.landV = Math.min(1, 0.3 + this.airT * 0.9);
+      this.airT = 0;
+    }
+    this.landV = Math.max(0, this.landV - dt * 3.4);
+    const sv = (this.spd = lerp(this.spd, moving ? a.speed : 0, damp(9, dt)));
+    if (dt > 0) {
+      const accel = (sv - this.prevSpd) / dt;
+      this.accLean = lerp(this.accLean, clamp(accel * 0.025, -0.1, 0.14), damp(6, dt));
+    }
+    this.prevSpd = sv;
+    const mlen = Math.hypot(a.moveX, a.moveZ);
+    const mx = mlen > 1e-3 ? a.moveX / mlen : 0;
+    const mz = mlen > 1e-3 ? a.moveZ / mlen : 1;
+    // walk -> run: the stance gets shorter and both feet leave the ground
+    const runW = smoothstep(2.2, 3.6, sv) * (1 - cr * 0.85);
+    const shuffle = smoothstep(0.9, 2.2, Math.abs(this.turn)) * (1 - mv);
+    // crouched: shorter, quicker steps rather than deep lunges
+    let duty = lerp(lerp(0.55, lerp(0.28, 0.24, this.sprintT), runW), 0.45, cr);
+    // stride length is limited by how far the legs reach; past that the cadence rises instead
+    const aMax = (lerp(0.36, 0.44, runW) + cr * 0.03) * (1 - Math.abs(mx) * 0.35);
+    const fNat = 0.55 + 0.45 * Math.sqrt(sv);
+    let A = (duty * (sv / fNat)) / 2;
+    let freq = fNat;
+    if (A > aMax) {
+      A = aMax;
+      freq = (sv * duty) / (2 * A);
+    }
+    if (moving) this.phase = (this.phase + dt * freq) % 1;
+    else if (shuffle > 0.05) {
+      // turning on the spot: small stepping in place
+      this.phase = (this.phase + dt * 1.7) % 1;
+      duty = 0.5;
+    }
+    const Aeff = A * mv;
+    const liftH = mv * (lerp(0.075, Math.min(0.28, 0.12 + 0.03 * sv), runW) + cr * 0.02) + shuffle * 0.07;
+    this.footCycle(0, this.phase, Aeff, duty, liftH, runW);
+    this.footCycle(1, (this.phase + 0.5) % 1, Aeff, duty, liftH, runW);
+    const legDiff = Aeff > 1e-3 ? (this.feet[0].along - this.feet[1].along) / (2 * Aeff) : 0;
+    // +1 at the middle of each stance
+    const midStance = Math.cos((this.phase - duty * 0.5) * Math.PI * 4);
+    const sideStance = Math.cos((this.phase - duty * 0.5) * Math.PI * 2);
 
     // ---------------------------------------------------------- root pose
     let pivotRx = 0;
     let pivotY = 0;
-    let hipY = HIP_REST - cr * 0.36 - mv * (0.035 + this.sprintT * 0.03) + breathe;
-    let hipLean = cr * 0.34 + mv * (0.06 + this.sprintT * 0.2);
-    const bob = mv * Math.abs(Math.sin(this.phase * Math.PI * 2)) * 0.035;
-    hipY -= bob;
+    const breathe = Math.sin(this.idleT * 1.7) * 0.004;
+    // walking vaults over the planted leg (highest mid-stance), running compresses into it
+    const bobAmp = lerp(0.03, 0.04, runW) * Math.min(1, sv / 2.5) * mv;
+    const bob = bobAmp * midStance * (1 - 2 * runW);
+    let hipY = HIP_REST - cr * 0.36 - mv * (lerp(0.035, 0.065, runW) + this.sprintT * 0.02) - bobAmp + bob + breathe - this.landV * 0.16;
+    let hipX = mv * (1 - runW) * 0.022 * sideStance + (1 - mv) * 0.012 * Math.sin(this.idleT * 0.55);
+    let hipLean = cr * 0.34 + mv * (0.05 + runW * 0.12 + this.sprintT * 0.12) + this.accLean * (0.3 + 0.7 * mv) + this.landV * 0.22;
     const twist = armed ? -0.32 * this.armedT * (1 - this.sprintT) : 0;
+    const pelvisYaw = -(0.14 - 0.05 * runW) * legDiff * mv * (1 - this.armedT * 0.4);
+    const pelvisRoll = mv * (1 - runW) * 0.045 * sideStance + (1 - mv) * 0.02 * Math.sin(this.idleT * 0.55);
+    // lean into turns taken at speed
+    const bank = clamp(-this.turn * sv * 0.03, -0.2, 0.2) * mv;
 
     if (a.mode === 'freefall') {
       pivotRx = 1.32 + Math.sin(this.idleT * 3) * 0.03;
       pivotY = 0.9;
       hipLean = -0.2;
       hipY = HIP_REST;
+      hipX = 0;
     } else if (a.mode === 'chute') {
       hipLean = 0.05 + Math.sin(this.idleT * 1.3) * 0.05;
       hipY = HIP_REST;
+      hipX = 0;
     } else if (a.mode === 'swim') {
       pivotRx = 1.18;
       pivotY = 0.55;
       hipLean = 0;
       hipY = HIP_REST;
+      hipX = 0;
     } else if (a.mode === 'dead') {
       const t = clamp(a.deadT / 0.75, 0, 1);
       const e = 1 - Math.pow(1 - t, 3);
@@ -432,24 +549,27 @@ export class CharacterModel {
       pivotY = e * 0.14;
       hipLean = 0;
       hipY = HIP_REST - e * 0.02;
+      hipX = 0;
     }
     this.lean = lerp(this.lean, hipLean, damp(12, dt));
     this.pivot.rotation.x = lerp(this.pivot.rotation.x, pivotRx, a.mode === 'dead' ? 1 : damp(6, dt));
     this.pivot.position.y = lerp(this.pivot.position.y, pivotY, a.mode === 'dead' ? 1 : damp(6, dt));
-    this.hipPos.set(0, lerp(this.hipPos.y, hipY, damp(18, dt)), 0);
+    this.hipPos.set(lerp(this.hipPos.x, hipX, damp(12, dt)), lerp(this.hipPos.y, hipY, damp(18, dt)), 0);
 
-    const sway = mv * Math.sin(this.phase * Math.PI * 2) * 0.05;
-    eulerQ(_qh, this.lean, twist + sway * 0.5, sway * 0.3);
+    const loco = ground ? 1 : 0;
+    eulerQ(_qh, this.lean, twist + pelvisYaw * loco, (pelvisRoll + bank) * loco);
     q[B.hips].copy(_qh);
 
     // aim pitch is spread over the spine so the whole torso follows the sights
     const pitch = a.mode === 'ground' ? clamp(a.pitch, -1.2, 1.2) : 0;
     const share = armed ? 0.3 : 0.14;
     const peek = a.mode === 'ground' ? a.peek : 0;
-    eulerQ(q[B.spine], -pitch * share - this.lean * 0.45, -twist * 0.45, peek * 0.24);
-    eulerQ(q[B.chest], -pitch * share, -twist * 0.55 - sway * 0.6, -sway * 0.3 + peek * 0.2);
-    eulerQ(q[B.neck], -pitch * 0.12, 0, 0);
-    eulerQ(q[B.head], -pitch * (armed ? 0.28 : 0.5) - this.lean * 0.35 + this.adsT * this.armedT * 0.1, 0, this.adsT * this.armedT * -0.16);
+    const breath = Math.sin(this.idleT * 1.7) * 0.012;
+    // shoulders swing against the hips and keep the head level
+    eulerQ(q[B.spine], -pitch * share - this.lean * 0.45, -twist * 0.45 - pelvisYaw * 0.5 * loco, peek * 0.24 - pelvisRoll * 0.5 * loco);
+    eulerQ(q[B.chest], -pitch * share + breath, -twist * 0.55 - pelvisYaw * 0.7 * loco, peek * 0.2 - (pelvisRoll * 0.4 + bank * 0.35) * loco);
+    eulerQ(q[B.neck], -pitch * 0.12, 0, bank * 0.2 * loco);
+    eulerQ(q[B.head], -pitch * (armed ? 0.28 : 0.5) - this.lean * 0.35 + this.adsT * this.armedT * 0.1, 0, this.adsT * this.armedT * -0.16 + bank * 0.25 * loco);
 
     // chest frame in model space
     _qs.copy(_qh).multiply(q[B.spine]);
@@ -460,33 +580,28 @@ export class CharacterModel {
 
     // ------------------------------------------------------------- legs
     if (a.mode === 'ground') {
-      const len = Math.hypot(a.moveX, a.moveZ) || 1;
-      const mx = a.moveX / len;
-      const mz = a.moveZ / len;
-      const amp = Math.min(0.36, a.speed * 0.07 + 0.06) * mv * (1 - cr * 0.3);
-      const liftH = (0.09 + this.sprintT * 0.1) * mv;
+      _q3.copy(_qh).invert();
       for (const s of [1, -1]) {
-        const f = (this.phase + (s > 0 ? 0 : 0.5)) % 1;
-        let along: number;
-        let lift = 0;
-        if (f < 0.5) along = amp * (1 - f * 4);
-        else {
-          const t = (f - 0.5) * 2;
-          along = amp * (-1 + t * 2);
-          lift = Math.sin(t * Math.PI) * liftH;
+        const ft = this.feet[s > 0 ? 0 : 1];
+        // feet track the ground: model space, so the stance foot stays put while the body passes over it
+        const stance = lerp(0.1, 0.075, runW) + cr * 0.06 + Math.abs(mx) * 0.03;
+        const idleZ = (1 - mv) * this.armedT * (s > 0 ? 0.09 : -0.05);
+        _target.set(s * stance + mx * ft.along, 0.07 + ft.lift + ft.raise, mz * ft.along + ft.fwd + cr * 0.06 * s + idleZ);
+        let pitchF = ft.pitch;
+        if (!a.grounded) {
+          // tuck up in the air
+          _target.set(s * 0.1, 0.22 + (s > 0 ? 0.1 : 0), s * 0.1);
+          pitchF = 0.35;
         }
-        const stance = 0.095 + cr * 0.06;
-        _target.set(s * stance + mx * along, 0.07 + lift, mz * along + cr * 0.06 * s + (1 - mv) * s * -0.03 * this.armedT);
-        if (!a.grounded) _target.set(s * 0.1, 0.22 + (s > 0 ? 0.1 : 0), s * 0.1);
         // into hip space
-        _target.sub(this.hipPos).applyQuaternion(_q3.copy(_qh).invert());
+        _target.sub(this.hipPos).applyQuaternion(_q3);
         _v4.set(s * 0.095, -0.03, 0);
-        _pole.set(s * 0.12, 0, 1);
+        _pole.set(s * 0.2, 0, 1);
         const ti = s > 0 ? B.thighL : B.thighR;
         solve2(q[ti], q[ti + 1], _v4, _target, _pole, THIGH, SHIN);
-        // keep the boot flat on the ground
+        // boot follows the gait's heel-toe roll, toes turned out a little
         q[ti + 2].copy(_qh).multiply(q[ti]).multiply(q[ti + 1]).invert();
-        if (lift > 0) q[ti + 2].multiply(_q2.setFromAxisAngle(X_AXIS, lift * 3.2));
+        q[ti + 2].multiply(eulerQ(_q2, pitchF, s * lerp(0.14, 0.05, runW), 0));
       }
     } else if (a.mode === 'freefall') {
       const w = Math.sin(this.idleT * 6) * 0.05;
@@ -527,15 +642,15 @@ export class CharacterModel {
       const rel = a.reload >= 0 ? Math.sin(clamp(a.reload, 0, 1) * Math.PI) : 0;
       const aimPitch = -pitch + sp * 0.55 - kick * 0.05 + rel * 0.25;
       eulerQ(_qw, aimPitch, sp * 0.6 + rel * 0.12, rel * -0.35 + sp * 0.25 + peek * 0.3);
-      const shoulderY = 1.47 - cr * 0.36 - bob - (HIP_REST - 0.96);
+      const shoulderY = 1.47 + (this.hipPos.y - HIP_REST);
       const ox = two ? lerp(-0.125, -0.045, ads) : lerp(-0.1, -0.035, ads);
       const oy = two ? lerp(-0.1, 0.045, ads) : lerp(-0.06, 0.1, ads);
       const oz = two ? lerp(0.25, 0.2, ads) : lerp(0.42, 0.46, ads);
       _v1.set(ox + sp * 0.06, oy - sp * 0.12, oz - sp * 0.06 - kick * 0.035);
       _v1.applyQuaternion(_q2.setFromAxisAngle(X_AXIS, -pitch));
       _pw.set(0, shoulderY, cr * 0.1 + this.lean * 0.3).add(_v1);
-      _pw.y += Math.sin(this.idleT * 1.7) * 0.003 + mv * Math.sin(this.phase * Math.PI * 4) * 0.008 - Math.abs(peek) * 0.05;
-      _pw.x -= peek * 0.3;
+      _pw.y += Math.sin(this.idleT * 1.7) * 0.003 - Math.abs(peek) * 0.05;
+      _pw.x += this.hipPos.x * 0.7 - peek * 0.3 + legDiff * mv * 0.012;
       // attach to the chest
       this.weaponHolder.position.copy(_pw).sub(_pc).applyQuaternion(_qci);
       this.weaponHolder.quaternion.copy(_qci).multiply(_qw);
@@ -565,12 +680,16 @@ export class CharacterModel {
       q[B.handL].copy(_q3).multiply(_qw).multiply(eulerQ(_q2, -1.2, 0, -0.5));
     } else if (a.mode === 'ground') {
       // empty hands: natural swing, or a scripted action
-      const sw = Math.sin(this.phase * Math.PI * 2) * mv;
-      const run = mv * (0.45 + this.sprintT * 0.5);
-      eulerQ(q[B.armL], sw * run * 1.1 + 0.05, 0, 0.1 + cr * 0.1);
-      eulerQ(q[B.armR], -sw * run * 1.1 + 0.05, 0, -0.1 - cr * 0.1);
-      eulerQ(q[B.foreL], -0.25 - run * 1.3 - cr * 0.6, 0, 0);
-      eulerQ(q[B.foreR], -0.25 - run * 1.3 - cr * 0.6, 0, 0);
+      // each arm swings with the opposite leg; runners bend the elbows
+      const amp = mv * lerp(0.36, 0.62, runW) + this.sprintT * 0.15;
+      const swL = Aeff > 1e-3 ? this.feet[0].along / Aeff : 0;
+      const swR = Aeff > 1e-3 ? this.feet[1].along / Aeff : 0;
+      const bend = 0.2 + mv * runW * 1.15 + cr * 0.5;
+      const abd = 0.09 + runW * 0.06 + cr * 0.1;
+      eulerQ(q[B.armL], swL * amp + 0.04 + this.landV * 0.3, 0, abd + this.landV * 0.25);
+      eulerQ(q[B.armR], swR * amp + 0.04 + this.landV * 0.3, 0, -abd - this.landV * 0.25);
+      eulerQ(q[B.foreL], -bend - Math.max(0, -swL) * amp * 0.5, 0, 0);
+      eulerQ(q[B.foreR], -bend - Math.max(0, -swR) * amp * 0.5, 0, 0);
       if (a.heal >= 0) {
         const w = Math.sin(this.idleT * 9) * 0.03;
         if (a.healKind === 'drink') {
@@ -641,9 +760,12 @@ export class CharacterModel {
     bones[B.hips].position.copy(this.hipPos);
     const k = a.mode === 'dead' ? damp(7, dt) : damp(26, dt);
     const kArm = showWeapon ? damp(38, dt) : k;
+    // once settled on the ground the legs follow the solver exactly (smoothing would let planted feet drift)
+    const kLeg = this.gndT > 0.2 ? 1 : this.gndT > 0 ? damp(30, dt) : k;
     for (let i = 1; i < bones.length; i++) {
       const isArm = i >= B.armL && i <= B.handR;
-      bones[i].quaternion.slerp(q[i], isArm ? kArm : k);
+      const isLeg = i >= B.thighL;
+      bones[i].quaternion.slerp(q[i], isArm ? kArm : isLeg ? kLeg : k);
     }
   }
 }
