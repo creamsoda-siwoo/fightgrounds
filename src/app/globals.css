@@ -575,3 +575,39 @@ button.inv-row:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); }
   .room-members li em { font-size: 10px; }
   .room-members li.empty b { font-size: 12px; }
 }
+
+/* ---------- bounty / redeploy / menu tags */
+.bounty {
+  margin-top: 4px; pointer-events: none; text-shadow: none;
+  padding: 4px 12px; border-radius: 999px; font-size: 13px; letter-spacing: 0.02em; white-space: nowrap;
+  background: rgba(120, 14, 14, 0.72); border: 1px solid rgba(255, 90, 74, 0.7); color: #ffe3de;
+}
+.bounty b { color: #fff; }
+.bounty.me { background: rgba(200, 30, 20, 0.85); animation: bounty-pulse 1.4s ease-in-out infinite; }
+@keyframes bounty-pulse { 50% { box-shadow: 0 0 0 6px rgba(255, 60, 40, 0.18); } }
+.redeploy { position: absolute; inset: 0; z-index: 12; display: grid; place-items: center; background: rgba(6, 8, 12, 0.55); padding: 16px; }
+.redeploy-card {
+  width: min(100%, 460px); display: grid; gap: 12px; padding: 22px 24px; text-align: center;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px; backdrop-filter: blur(10px);
+}
+.redeploy-card h2 { font-size: 34px; color: var(--amber); }
+.redeploy-card p { font-size: 14px; line-height: 1.6; color: rgba(241, 238, 230, 0.85); }
+.redeploy-card .end-actions { justify-content: center; }
+.brand-tags { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.brand-tags li { font-size: 12px; font-weight: 700; letter-spacing: 0.04em; padding: 4px 10px; border-radius: 999px; border: 1px solid rgba(255, 178, 62, 0.55); color: var(--amber); background: rgba(8, 11, 15, 0.5); }
+@media (max-height: 520px) {
+  .bounty { font-size: 11px; padding: 3px 9px; }
+  .redeploy-card { padding: 14px 16px; gap: 8px; }
+  .redeploy-card h2 { font-size: 24px; }
+  .redeploy-card p { font-size: 12px; }
+}
+
+/* the bounty tag sits under the storm timer: push the big banner below it */
+.hud.has-bounty .banner { top: calc(22% + 34px); }
+@media (max-height: 520px) { .hud.has-bounty .banner { top: calc(26% + 26px); } }
+@media (max-height: 520px) {
+  .menu-left { gap: 8px; }
+  .brand-kicker { display: none; }
+  .brand-tags { margin-top: 6px; gap: 3px 4px; }
+  .brand-tags li { font-size: 10px; padding: 1px 7px; letter-spacing: 0; white-space: nowrap; }
+}

@@ -10,7 +10,7 @@ import { OUTFITS } from './entities/CharacterModel';
 import { Plane } from './entities/Plane';
 import { Player } from './entities/Player';
 import { Input } from './Input';
-import { SCOPES, itemLabel, itemRarity, type Item } from './items/defs';
+import { ARMOR, SCOPES, itemLabel, itemRarity, type Item } from './items/defs';
 import { Loot } from './items/Loot';
 import { NetSync } from './net/NetSync';
 import type { Room, StartMsg } from './net/Room';
@@ -83,6 +83,12 @@ export class Game {
   damageMarks: DamageMark[] = [];
   /** multiplayer match in progress (null when playing alone) */
   net: NetSync | null = null;
+  /** the survivor with a price on their head, and where they were last seen */
+  bounty: Character | null = null;
+  bountyMark: { x: number; z: number; t: number } | null = null;
+  private bountyPingT = 0;
+  /** one early second chance per match */
+  redeployUsed = false;
   private leaving = false;
   private bgTimer = 0;
   private bgLast = 0;
@@ -305,6 +311,9 @@ export class Game {
       for (const c of this.chars) if (c.netId >= humans) c.name = BOT_NAMES[(c.netId - 1) % BOT_NAMES.length];
     }
     this.leaving = false;
+    this.bounty = null;
+    this.bountyMark = null;
+    this.redeployUsed = false;
     this.ctl.reset();
     this.ctl.yaw = Math.atan2(this.plane.dir.x, this.plane.dir.z);
     this.input.wantFree = false;
@@ -313,6 +322,7 @@ export class Game {
       phase: 'flight', paused: false, result: null, feed: [], kills: 0, alive: TOTAL_PLAYERS, inventory: false, map: false,
       banner: '강하 지점을 선택하세요', bannerSub: 'F 키로 수송기에서 뛰어내립니다', bannerT: 1, prompt: '', hp: 100, boost: 0, near: [], spectating: '',
       online: !!online, roomCode: online ? online.room.code : '', humans: online ? online.start.roster.length : 1,
+      bounty: '', bountyMe: false, redeploy: false,
     });
     this.bannerT = 5;
   }
@@ -551,6 +561,8 @@ export class Game {
       const up = b >= 0 && victim.pos.y > this.world.buildings[b].y + 2;
       this.loot.scatter(items, victim.pos.x, Math.max(victim.pos.y, this.world.heightAt(victim.pos.x, victim.pos.z)), victim.pos.z, b, up, this.rng);
     }
+    const wasBounty = victim === this.bounty;
+    if (wasBounty) this.bountyClaimed(victim, killer);
     victim.weapons = [null, null, null];
     victim.active = -1;
     victim.syncModel();
@@ -563,24 +575,132 @@ export class Game {
     if (killer === this.player && victim !== this.player) {
       this.killT = this.time;
       this.audio.ui('kill');
-      this.banner(`${victim.name} 처치`, `${this.player.kills} 킬${head ? ' · 헤드샷' : ''} · ${Math.round(dist)}m`, 2.6);
+      if (wasBounty) this.banner('현상금 획득!', `${victim.name} 처치 · 쓰러진 자리에 보상 상자`, 3.5);
+      else this.banner(`${victim.name} 처치`, `${this.player.kills} 킬${head ? ' · 헤드샷' : ''} · ${Math.round(dist)}m`, 2.6);
     }
     if (this.spectate === victim) this.spectateNext(killer);
     if (victim === this.player && this.autoPlay) {
       this.autoPlay = false;
       this.store.emit({ autoPlay: false });
     }
-    if (victim === this.player) this.finish(false, killer && killer !== victim ? killer.name : weapon);
+    if (victim === this.player) this.finish(false, killer && killer !== victim ? killer.name : weapon, alive > 1);
     else if (alive === 1 && this.player.alive) this.finish(true, '');
     if (alive <= 1) {
       this.ended = true;
       this.zone.stop();
+      if (this.store.state.redeploy) this.store.emit({ redeploy: false });
     }
   }
 
-  private finish(won: boolean, killer: string): void {
+  // ------------------------------------------------------------ bounty
+
+  /** a new circle puts a price on the deadliest survivor's head */
+  private pickBounty(): void {
+    if (this.bounty && this.bounty.alive) return;
+    let best: Character | null = null;
+    for (const c of this.chars) {
+      if (!c.alive || c.mode !== 'ground' || c.kills < 2) continue;
+      if (!best || c.kills > best.kills || (c.kills === best.kills && this.rng() < 0.5)) best = c;
+    }
+    if (!best) return;
+    this.setBounty(best);
+    this.net?.bounty(best);
+  }
+
+  setBounty(c: Character | null): void {
+    this.bounty = c;
+    this.bountyMark = c ? { x: c.pos.x, z: c.pos.z, t: this.time } : null;
+    this.bountyPingT = 0;
+    if (!c) return;
+    if (c === this.player) this.banner('현상금 표적이 되었습니다', '5초마다 위치가 모두에게 드러납니다 · 살아남으세요', 4);
+    else this.notify(`현상금 표적: ${c.name} (${c.kills}킬) — 처치하면 보상 상자`);
+    this.audio.ui('zone');
+  }
+
+  private bountyClaimed(victim: Character, killer: Character | null): void {
+    this.bounty = null;
+    this.bountyMark = null;
+    // the reward drops where the target fell (the owner of that character drops it for everyone)
+    if (!victim.remote && victim.pos.y > -1.2) {
+      const reward: Item[] = [
+        { kind: this.rng() < 0.5 ? 'helmet' : 'vest', n: 3, dur: ARMOR[3].dur },
+        { kind: 'medkit', n: 1 },
+        { kind: 'drink', n: 1 },
+        { kind: 'drink', n: 1 },
+        { kind: 'grenade', n: 1 },
+      ];
+      this.loot.scatter(reward, victim.pos.x, Math.max(victim.pos.y, this.world.heightAt(victim.pos.x, victim.pos.z)), victim.pos.z, -1, false, this.rng);
+    }
+    if (killer !== this.player && victim !== this.player) this.notify(`현상금 표적 ${victim.name} 처치됨`);
+  }
+
+  private updateBounty(dt: number): void {
+    const b = this.bounty;
+    if (!b) return;
+    if (!b.alive) {
+      this.bounty = null;
+      this.bountyMark = null;
+      return;
+    }
+    this.bountyPingT -= dt;
+    if (this.bountyPingT > 0) return;
+    this.bountyPingT = 5;
+    this.bountyMark = { x: b.pos.x, z: b.pos.z, t: this.time };
+    // hunters nearby hear about it (only where the bots are run)
+    if (!this.net || this.net.host) for (const bot of this.bots) if (bot.c !== b && !bot.c.remote) bot.onNoise(b.pos.x, b.pos.z, 300, b);
+  }
+
+  // ---------------------------------------------------------- redeploy
+
+  /** early second chance: drop back in from above the safe zone with a pistol */
+  redeploy(): void {
+    const p = this.player;
+    if (p.alive || this.redeployUsed || !this.store.state.redeploy || this.ended) return;
+    this.redeployUsed = true;
+    const keep = [p.kills, p.damageDealt, p.headshots, p.longestKill];
+    p.reset();
+    [p.kills, p.damageDealt, p.headshots, p.longestKill] = keep;
+    const z = this.zone;
+    let x = z.cx;
+    let w = z.cz;
+    for (let k = 0; k < 24; k++) {
+      const a = this.rng() * Math.PI * 2;
+      const r = Math.sqrt(this.rng()) * Math.max(20, z.r) * 0.6;
+      x = z.cx + Math.cos(a) * r;
+      w = z.cz + Math.sin(a) * r;
+      if (this.world.heightAt(x, w) > 2) break;
+    }
+    p.mode = 'freefall';
+    p.pos.set(x, Math.max(0, this.world.heightAt(x, w)) + 260, w);
+    p.vel.set(0, -6, 0);
+    p.take({ kind: 'weapon', sub: 'viper', n: 15 });
+    p.take({ kind: 'ammo', sub: '9mm', n: 30 });
+    p.take({ kind: 'bandage', n: 2 });
+    this.ctl.reset();
+    this.ctl.pitch = -0.7;
+    this.spectate = null;
+    this.net?.revive(p);
+    this.input.wantFree = false;
+    this.input.lock();
+    this.store.emit({ phase: 'drop', redeploy: false, result: null, spectating: '', alive: this.aliveCount(), hp: 100 });
+    this.banner('재강하!', '권총 한 자루로 다시 시작합니다 · 매치당 1회', 3);
+  }
+
+  declineRedeploy(): void {
+    this.store.emit({ redeploy: false });
+  }
+
+  /** another client's player dropped back in */
+  onRevive(c: Character): void {
+    this.store.set({ alive: this.aliveCount() });
+    this.notify(`${c.name} 재강하`);
+  }
+
+  private finish(won: boolean, killer: string, othersLeft = false): void {
     if (this.leaving) return;
     const p = this.player;
+    // went down before the second circle closed: offer one drop back in
+    const offer = !won && othersLeft && !this.redeployUsed && !this.ended && this.zone.phase <= 1 && this.zone.state !== 'idle';
     if (won) {
       p.placement = 1;
       this.audio.ui('win');
@@ -598,6 +718,7 @@ export class Game {
         placement: p.placement, total: TOTAL_PLAYERS, kills: p.kills, damage: Math.round(p.damageDealt), headshots: p.headshots,
         longest: Math.round(p.longestKill), time: Math.round(this.matchTime), killer, won,
       },
+      redeploy: offer,
     });
   }
 
@@ -763,6 +884,8 @@ export class Game {
     const ev = this.zone.update(dt, this.world, this.rng, this.camera.position);
     if (ev !== 'none') this.onZoneEvent(ev, true);
     this.airdrops.update(dt, this.rng);
+    this.updateBounty(dt);
+    if (st.redeploy && this.zone.phase > 1) this.store.emit({ redeploy: false });
 
     if (input.hit('KeyP') && st.phase !== 'dead' && st.phase !== 'won') this.setAutoPlay(!this.autoPlay);
     this.ctl.update(dt);
@@ -817,15 +940,12 @@ export class Game {
     }
     const z = this.zone;
     // phases 1-3 also bring a supply drop inside the next circle (the host decides where)
-    if (own && z.phase >= 1 && z.phase <= 3) {
-      const at = this.airdrops.spawn(z.nx, z.nz, z.nr, this.rng);
-      if (at) {
-        this.net?.airdrop(at.x, at.z);
-        this.onAirdrop();
-        return;
-      }
-    }
-    this.banner('새 안전 구역 지정', `${Math.round(z.timer)}초 후 폭풍이 다시 움직입니다`, 3.5);
+    const at = own && z.phase >= 1 && z.phase <= 3 ? this.airdrops.spawn(z.nx, z.nz, z.nr, this.rng) : null;
+    if (at) {
+      this.net?.airdrop(at.x, at.z);
+      this.onAirdrop();
+    } else this.banner('새 안전 구역 지정', `${Math.round(z.timer)}초 후 폭풍이 다시 움직입니다`, 3.5);
+    if (own) this.pickBounty();
   }
   onAirdrop(): void {
     this.banner('보급품 투하!', '빨간 연기를 따라가면 최고급 장비가 있습니다', 4);
@@ -971,6 +1091,9 @@ export class Game {
       scoped: this.ctl.scoped,
       canJump: this.plane.canJump,
       near,
+      bounty: this.bounty ? this.bounty.name : '',
+      bountyMe: this.bounty === p,
+      bountyDist: this.bountyMark ? Math.round(Math.hypot(this.bountyMark.x - p.pos.x, this.bountyMark.z - p.pos.z) / 10) * 10 : 0,
     });
     if (changed) this.store.set({ slots });
     if (ammoChanged) this.store.set({ ammo: { ...p.ammo } });

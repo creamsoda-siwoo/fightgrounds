@@ -223,7 +223,20 @@ export default function GameClient() {
       {live && game && <Hud game={game} s={s} />}
       {touch && game && (s.phase === 'flight' || s.phase === 'drop' || s.phase === 'playing') && !s.paused && !s.inventory && <TouchControls game={game} s={s} />}
       {touch && <div className="rotate-hint">화면을 가로로 돌려 주세요</div>}
-      {(s.phase === 'dead' || s.phase === 'won') && s.result && game && (
+      {s.phase === 'dead' && s.redeploy && game && (
+        <div className="redeploy">
+          <div className="redeploy-card">
+            <span className="end-kicker">{s.result?.killer ? `${s.result.killer}에게 당했습니다` : '쓰러졌습니다'}</span>
+            <h2>재강하 1회</h2>
+            <p>두 번째 폭풍이 닫히기 전에 쓰러졌습니다. 안전 구역 상공에서 권총 한 자루로 다시 뛰어내릴 수 있습니다. 킬과 피해량 기록은 그대로 이어집니다.</p>
+            <div className="end-actions">
+              <button className="btn primary big" onClick={() => game.redeploy()}>재강하</button>
+              <button className="btn" onClick={() => game.declineRedeploy()}>결과 보기</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {(s.phase === 'dead' || s.phase === 'won') && s.result && game && !s.redeploy && (
         <div style={{ display: s.spectating ? 'none' : 'contents' }}>
           <EndScreen
             key={matchKey}

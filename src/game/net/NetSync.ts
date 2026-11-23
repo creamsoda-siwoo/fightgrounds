@@ -30,6 +30,9 @@ const F_SPRINT = 2;
 const F_ADS = 4;
 const F_GROUND = 8;
 const F_SWIM = 16;
+const F_SLIDE = 32;
+const F_VAULT = 64;
+const F_ALERT = 128;
 
 interface Snap {
   t: number;
@@ -184,13 +187,20 @@ export class NetSync {
   airdrop(x: number, z: number): void {
     this.out.push(['ad', r2(x), r2(z)]);
   }
+  bounty(c: Character): void {
+    this.out.push(['bt', c.netId]);
+  }
+  revive(c: Character): void {
+    this.out.push(['rv', c.netId]);
+  }
   private lootSpawn(li: LootItem): void {
     const it = li.item;
     this.out.push(['ls', li.id, it.kind, it.sub ?? '', it.n, it.dur ?? -1, r2(li.x), r2(li.y), r2(li.z), li.building, li.upstairs ? 1 : 0]);
   }
 
   private snapshot(c: Character): number[] {
-    const flags = (c.crouch ? F_CROUCH : 0) | (c.sprint ? F_SPRINT : 0) | (c.ads ? F_ADS : 0) | (c.grounded ? F_GROUND : 0) | (c.swimming ? F_SWIM : 0);
+    const flags = (c.crouch ? F_CROUCH : 0) | (c.sprint ? F_SPRINT : 0) | (c.ads ? F_ADS : 0) | (c.grounded ? F_GROUND : 0) | (c.swimming ? F_SWIM : 0)
+      | (c.slideT > 0 ? F_SLIDE : 0) | (c.vaultT >= 0 ? F_VAULT : 0) | (c.aimHold > 0 ? F_ALERT : 0);
     const act = c.weapon;
     let back = -1;
     for (let i = 0; i < 3; i++) {
@@ -259,10 +269,10 @@ export class NetSync {
       r.buf.push({ t: p.t, a });
       if (r.buf.length > 10) r.buf.shift();
     }
-    for (const e of p.e) this.event(e, p.f);
+    for (const e of p.e) this.event(e, p.f, p.t);
   }
 
-  private event(e: (string | number)[], sender: string): void {
+  private event(e: (string | number)[], sender: string, pt: number): void {
     const game = this.game;
     const n = (i: number) => e[i] as number;
     switch (e[0]) {
@@ -307,6 +317,33 @@ export class NetSync {
         game.airdrops.spawnAt(n(1), n(2));
         game.onAirdrop();
         break;
+      case 'bt': {
+        const c = this.byGid[n(1)];
+        if (c && c.alive && game.bounty !== c) game.setBounty(c);
+        break;
+      }
+      case 'rv': {
+        const c = this.byGid[n(1)];
+        if (!c || !c.remote || c.alive) break;
+        c.alive = true;
+        c.hp = 100;
+        c.mode = 'freefall';
+        c.deadT = 0;
+        c.placement = 0;
+        c.weapons = [null, null, null];
+        c.active = -1;
+        c.syncModel();
+        const r = this.remotes.get(n(1));
+        if (r) {
+          // drop the snapshots from before the redeploy (they still say dead)
+          r.buf = r.buf.filter((b) => b.t >= pt);
+          r.applied = null;
+          r.wKey = -9;
+          r.gearKey = -9;
+        }
+        game.onRevive(c);
+        break;
+      }
     }
   }
 
@@ -412,6 +449,9 @@ export class NetSync {
     c.ads = !!(f & F_ADS);
     c.grounded = !!(f & F_GROUND);
     c.swimming = !!(f & F_SWIM);
+    c.slideT = f & F_SLIDE ? 0.3 : 0;
+    c.vaultT = f & F_VAULT ? 0.5 : -1;
+    c.aimHold = f & F_ALERT ? 0.5 : 0;
     const wKey = a[11] * 10000 + a[12] * 10 + a[13];
     if (wKey !== r.wKey) {
       r.wKey = wKey;
