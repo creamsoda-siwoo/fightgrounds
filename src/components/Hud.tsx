@@ -152,7 +152,7 @@ export default function Hud({ game, s }: { game: Game; s: HudState }) {
   const feed = s.feed.filter((f) => game.time - f.t < 5).slice(-3);
 
   return (
-    <div className={`hud ${ended ? 'ended' : ''}`}>
+    <div className={`hud ${ended ? 'ended' : ''} ${s.bounty ? 'has-bounty' : ''}`}>
       <HudCanvas game={game} showMap={s.map && !ended} onCloseMap={() => game.store.emit({ map: false })} />
 
       {!ended && (
@@ -186,6 +186,11 @@ export default function Hud({ game, s }: { game: Game; s: HudState }) {
             {s.zoneState === 'shrinking' && <><span className="zone-label">폭풍 수축 중</span><b>{fmt(s.zoneTimer)}</b></>}
             {s.zoneState === 'final' && <span className="zone-label">최종 구역</span>}
             {s.outside && <span className="zone-warn">폭풍 속입니다 — 안전 구역으로 이동하세요</span>}
+            {s.bounty && (
+              <span className={`bounty ${s.bountyMe ? 'me' : ''}`}>
+                {s.bountyMe ? <>현상금 표적 · <b>위치 노출 중</b></> : <>현상금 <b>{s.bounty}</b> · {s.bountyDist}m</>}
+              </span>
+            )}
           </div>
 
           {s.banner && (

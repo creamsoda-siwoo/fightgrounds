@@ -85,6 +85,12 @@ export interface HudState {
   roomCode: string;
   /** people (not bots) who started this match */
   humans: number;
+  /** current bounty target ('' when there is none) */
+  bounty: string;
+  bountyMe: boolean;
+  bountyDist: number;
+  /** the player went down early and may drop in again once */
+  redeploy: boolean;
 }
 
 type Listener = () => void;
@@ -99,7 +105,7 @@ export class HudStore {
     alive: 0, kills: 0, zoneState: 'idle', zoneTimer: 0, zonePhase: 0, outside: false,
     prompt: '', action: '', actionProgress: 0, feed: [], banner: '', bannerSub: '', bannerT: 0,
     scoped: false, inventory: false, map: false, near: [], result: null, location: '', canJump: false, spectating: '', fps: 0, autoPlay: false, autoRun: false,
-    online: false, roomCode: '', humans: 1,
+    online: false, roomCode: '', humans: 1, bounty: '', bountyMe: false, bountyDist: 0, redeploy: false,
   };
   private listeners = new Set<Listener>();
   private dirty = false;

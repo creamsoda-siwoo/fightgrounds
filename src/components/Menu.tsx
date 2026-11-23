@@ -12,8 +12,8 @@ const CONTROLS: [string, string][] = [
   ['좌클릭', '사격 · 주먹'],
   ['우클릭', '정조준 (스코프)'],
   ['Shift', '달리기'],
-  ['Space', '점프'],
-  ['C / Ctrl', '앉기'],
+  ['Space', '점프 · 허리 높이 장애물 넘기'],
+  ['C / Ctrl', '앉기 · 달리다 누르면 슬라이딩'],
   ['R', '재장전'],
   ['F', '줍기 · 강하 · 낙하산'],
   ['1 2 3', '무기 교체'],
@@ -62,6 +62,12 @@ export default function Menu(p: Props) {
           <span className="brand-kicker">ISLAND SURVIVAL · {TOTAL_PLAYERS}인 배틀로얄</span>
           <h1>FIGHT<em>GROUNDS</em></h1>
           <p>폭풍이 조여 오는 해란 섬에 {TOTAL_PLAYERS}명이 강하합니다. 무기를 찾고, 안전 구역을 따라 이동하며, 마지막 한 명으로 살아남으세요.</p>
+          <ul className="brand-tags">
+            <li>슬라이딩 · 장애물 넘기</li>
+            <li>현상금 사냥</li>
+            <li>초반 재강하 1회</li>
+            <li>10분 남짓 빠른 매치</li>
+          </ul>
         </div>
         {showRoom ? (
           <RoomPanel

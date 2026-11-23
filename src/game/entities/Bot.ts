@@ -828,6 +828,7 @@ export class Bot {
   // ------------------------------------------------------------- shooting
 
   private aimAt(dt: number, t: Character, d: number): void {
+    this.c.aimHold = 0.9;
     const c = this.c;
     const game = this.game;
     const known = this.visible ? t.pos : this.lastSeen;

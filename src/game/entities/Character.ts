@@ -3,7 +3,7 @@ import { CROUCH_HEIGHT, GRAVITY, JUMP_SPEED, PLAYER_RADIUS, STAND_HEIGHT, STEP_H
 import { clamp, damp } from '../core/math';
 import type { Game } from '../Game';
 import { AMMO_MAX, ARMOR, HEAL, SCOPES, WEAPONS, canMountScope, weaponZoom, type AmmoType, type Item, type WeaponDef } from '../items/defs';
-import type { MoveResult } from '../world/Colliders';
+import type { MoveResult, RayHit } from '../world/Colliders';
 import { CharacterModel, defaultAnim, type AnimInput } from './CharacterModel';
 
 export interface WeaponState {
@@ -20,6 +20,8 @@ export type HealKind = 'bandage' | 'medkit' | 'drink';
 export type BodyPart = 'head' | 'body' | 'limb';
 
 const _res: MoveResult = { ground: 0, ceil: false, pushed: false };
+const _rh: RayHit = { t: 0, nx: 0, ny: 1, nz: 0, surf: 0 };
+const SLIDE_TIME = 0.85;
 const _n = new THREE.Vector3();
 
 /** State and rules shared by the human player and every bot. */
@@ -81,12 +83,26 @@ export class Character {
   lod = 0;
   /** multiplayer: run by another client, this one only plays it back */
   remote = false;
+  /** seconds left in a sprint slide */
+  slideT = 0;
+  private slideV = 0;
+  private slideX = 0;
+  private slideZ = 0;
+  private slideCd = 0;
+  /** vault / mantle progress 0..1, -1 when not vaulting */
+  vaultT = -1;
+  private vaultDur = 0.45;
+  private vaultFrom = new THREE.Vector3();
+  private vaultTo = new THREE.Vector3();
+  /** keeps the weapon raised (aiming, in a fight); otherwise it is carried low */
+  aimHold = 0;
   /** multiplayer: the id every client agrees on */
   netId = -1;
 
   constructor(public game: Game, public id: number, public name: string, public isPlayer: boolean, variant: number) {
     this.model = new CharacterModel(variant);
     this.model.group.visible = false;
+    this.model.groundFn = (x, z) => game.world.heightAt(x, z);
   }
 
   get height(): number {
@@ -125,6 +141,10 @@ export class Character {
     this.grenades = this.bandages = this.medkits = this.drinks = 0;
     this.crouch = this.sprint = this.ads = false;
     this.peek = 0;
+    this.slideT = 0;
+    this.slideCd = 0;
+    this.vaultT = -1;
+    this.aimHold = 0;
     this.grounded = false;
     this.swimming = false;
     this.fireCd = 0;
@@ -154,7 +174,22 @@ export class Character {
    */
   move(dt: number, wx: number, wz: number, speed: number, jump: boolean): void {
     const world = this.game.world;
-    const accel = this.grounded ? 20 : 2.2;
+    if (this.slideCd > 0) this.slideCd -= dt;
+    if (this.vaultT >= 0) {
+      this.vaultStep(dt);
+      return;
+    }
+    if (this.slideT > 0) {
+      // sprint slide: carried by momentum along the slide direction, slowing down
+      this.slideT = Math.max(0, this.slideT - dt);
+      const k = this.slideT / SLIDE_TIME;
+      wx = this.slideX;
+      wz = this.slideZ;
+      speed = 2.2 + (this.slideV - 2.2) * Math.pow(k, 1.4);
+      if (jump) this.slideT = 0;
+    }
+    if (this.grounded && jump && !this.swimming && this.tryVault(wx, wz)) return;
+    const accel = this.slideT > 0 ? 14 : this.grounded ? 20 : 2.2;
     const k = damp(accel, dt);
     this.vel.x += (wx * speed - this.vel.x) * k;
     this.vel.z += (wz * speed - this.vel.z) * k;
@@ -210,9 +245,90 @@ export class Character {
     this.footsteps(dt);
   }
 
+  /** sprint + crouch: drop into a slide that carries the sprint's momentum */
+  startSlide(): boolean {
+    if (!this.grounded || this.swimming || this.slideCd > 0 || this.speed < 5 || this.mode !== 'ground' || this.heal) return false;
+    const l = Math.hypot(this.vel.x, this.vel.z) || 1;
+    this.slideX = this.vel.x / l;
+    this.slideZ = this.vel.z / l;
+    this.slideV = Math.max(this.speed + 2.2, 8.4);
+    this.slideT = SLIDE_TIME;
+    // the burst comes at once, then friction takes it away
+    this.vel.x = this.slideX * this.slideV;
+    this.vel.z = this.slideZ * this.slideV;
+    this.slideCd = 1.1;
+    this.crouch = true;
+    this.sprint = false;
+    this.game.audio.slide(this.pos.x, this.pos.y, this.pos.z, this.isPlayer);
+    return true;
+  }
+
+  /**
+   * Jumping at a waist-high obstacle climbs over it instead: find a box or
+   * crate within reach, its top surface, and room to stand on it.
+   */
+  private tryVault(wx: number, wz: number): boolean {
+    const cols = this.game.world.colliders;
+    let fx = wx;
+    let fz = wz;
+    if (Math.hypot(fx, fz) < 0.1) {
+      fx = Math.sin(this.yaw);
+      fz = Math.cos(this.yaw);
+    }
+    const l = Math.hypot(fx, fz);
+    fx /= l;
+    fz /= l;
+    let dist = -1;
+    for (const y of [0.45, 0.95]) {
+      if (cols.raycast(this.pos.x, this.pos.y + y, this.pos.z, fx, 0, fz, 1.15, _rh)) {
+        dist = dist < 0 ? _rh.t : Math.min(dist, _rh.t);
+      }
+    }
+    if (dist < 0) return false;
+    const px = this.pos.x + fx * (dist + 0.38);
+    const pz = this.pos.z + fz * (dist + 0.38);
+    const start = this.pos.y + 1.9;
+    if (!cols.raycast(px, start, pz, 0, -1, 0, 1.9, _rh) || _rh.t < 0.42) return false;
+    const top = start - _rh.t;
+    const rise = top - this.pos.y;
+    if (rise < 0.35 || rise > 1.48) return false;
+    // room to stand up there and a clear path over the edge
+    if (cols.raycast(px, top + 0.05, pz, 0, 1, 0, 1.7, _rh)) return false;
+    if (cols.raycast(this.pos.x, top + 0.75, this.pos.z, fx, 0, fz, dist + 0.6, _rh)) return false;
+    this.vaultFrom.copy(this.pos);
+    this.vaultTo.set(px, top, pz);
+    this.vaultDur = 0.32 + rise * 0.22;
+    this.vaultT = 0;
+    this.slideT = 0;
+    this.vel.set(fx * 2.5, 0, fz * 2.5);
+    this.grounded = false;
+    if (this.isPlayer) this.game.audio.ui('land');
+    return true;
+  }
+
+  private vaultStep(dt: number): void {
+    this.vaultT = Math.min(1, this.vaultT + dt / this.vaultDur);
+    const t = this.vaultT;
+    // up first, then over
+    const up = 1 - Math.pow(1 - Math.min(1, t * 1.6), 2);
+    const over = t * t * (3 - 2 * t);
+    this.pos.x = this.vaultFrom.x + (this.vaultTo.x - this.vaultFrom.x) * over;
+    this.pos.z = this.vaultFrom.z + (this.vaultTo.z - this.vaultFrom.z) * over;
+    this.pos.y = this.vaultFrom.y + (this.vaultTo.y - this.vaultFrom.y) * up + Math.sin(t * Math.PI) * 0.12;
+    this.speed = Math.hypot(this.vel.x, this.vel.z);
+    if (t >= 1) {
+      this.vaultT = -1;
+      this.pos.copy(this.vaultTo);
+      this.grounded = true;
+      this.fallSpeed = 0;
+      this.vel.y = 0;
+      this.inBuilding = this.game.world.buildingAt(this.pos.x, this.pos.z, this.pos.y);
+    }
+  }
+
   /** footstep sounds (and the HUD cue for nearby enemies) from the current speed */
   footsteps(dt: number): void {
-    if (this.grounded && this.speed > 1.2 && !this.swimming) {
+    if (this.grounded && this.speed > 1.2 && !this.swimming && this.slideT <= 0) {
       this.stepAcc += this.speed * dt;
       const stride = this.crouch ? 1.1 : 1.9;
       if (this.stepAcc > stride) {
@@ -271,7 +387,7 @@ export class Character {
 
   canFire(): boolean {
     const w = this.weapon;
-    return !!w && this.fireCd <= 0 && this.reloadT < 0 && !this.heal && this.throwT < 0 && w.ammo > 0 && !this.swimming && this.mode === 'ground';
+    return !!w && this.fireCd <= 0 && this.reloadT < 0 && !this.heal && this.throwT < 0 && w.ammo > 0 && !this.swimming && this.mode === 'ground' && this.vaultT < 0;
   }
 
   /** current cone half angle in radians */
@@ -563,6 +679,7 @@ export class Character {
   /** timers that run regardless of who is in control */
   tick(dt: number): void {
     this.sinceShot += dt;
+    if (this.aimHold > 0) this.aimHold -= dt;
     if (!this.alive) {
       this.deadT += dt;
       return;
@@ -658,6 +775,11 @@ export class Character {
     a.punch = this.punchT;
     a.peek = this.peek;
     a.deadT = this.deadT;
+    a.alert = this.ads || this.sinceShot < 1.6 || this.aimHold > 0 || this.reloadT >= 0;
+    a.slide = this.slideT > 0;
+    a.vault = this.vaultT;
+    // feet follow the terrain (floors inside buildings are flat)
+    a.terrain = this.mode === 'ground' && this.grounded && !this.onHardFloor && !this.swimming && this.lod === 0;
     this.model.update(dt, a);
   }
 }

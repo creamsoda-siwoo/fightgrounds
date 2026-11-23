@@ -161,10 +161,16 @@ export class Player {
     c.yaw = this.yaw;
     c.pitch = this.pitch;
     if (ctl) {
-      if (input.hit('KeyC') || input.hit('ControlLeft')) c.crouch = !c.crouch;
+      if (input.hit('KeyC') || input.hit('ControlLeft')) {
+        // crouching out of a sprint turns into a slide
+        if (!(c.sprint && !c.crouch && c.startSlide()) && c.slideT <= 0) c.crouch = !c.crouch;
+      }
       let jump = false;
       if (input.hit('Space')) {
-        if (c.crouch) c.crouch = false;
+        if (c.slideT > 0) {
+          c.crouch = false;
+          jump = true;
+        } else if (c.crouch) c.crouch = false;
         else jump = true;
       }
       const w = c.weapon;
@@ -234,6 +240,8 @@ export class Player {
         game.combat.melee(c);
       }
       if (input.hit('KeyF') && this.near) this.pickup(this.near, true);
+      // raise the weapon from the low carry while aiming or shooting
+      if (input.rmb || input.lmb || this.autoTarget) c.aimHold = Math.max(c.aimHold, 1.2);
     } else {
       c.sprint = false;
       c.ads = false;

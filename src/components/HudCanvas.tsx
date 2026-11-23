@@ -74,6 +74,27 @@ function drawMap(g: CanvasRenderingContext2D, game: Game, size: number, cx: numb
     g.fill();
     g.stroke();
   }
+  // bounty target, last revealed position
+  if (game.bountyMark && game.bounty && game.bounty !== game.player) {
+    const px = toX(game.bountyMark.x);
+    const py = toY(game.bountyMark.z);
+    const age = game.time - game.bountyMark.t;
+    const s = full ? 9 : 7;
+    g.strokeStyle = `rgba(255, 60, 60, ${Math.max(0, 0.9 - age * 0.5)})`;
+    g.lineWidth = 2;
+    g.beginPath();
+    g.arc(px, py, s + age * 10, 0, TAU);
+    g.stroke();
+    g.fillStyle = '#ff3c3c';
+    g.strokeStyle = 'rgba(0,0,0,0.85)';
+    g.beginPath();
+    g.arc(px, py, s * 0.75, 0, TAU);
+    g.fill();
+    g.stroke();
+    g.fillStyle = '#fff';
+    g.fillRect(px - 1.5, py - s * 0.5, 3, s * 0.6);
+    g.fillRect(px - 1.5, py + s * 0.2, 3, 3);
+  }
   for (const d of game.airdrops.drops) {
     const px = toX(d.x);
     const py = toY(d.z);

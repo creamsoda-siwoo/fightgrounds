@@ -222,6 +222,16 @@ export class AudioSys {
     if (hard) this.tone(t, 0.04, 180, 90, pl.gain * 0.12, pl.pan);
   }
 
+  /** gravel / grass scrape of a sprint slide */
+  slide(x: number, y: number, z: number, own: boolean): void {
+    if (!this.ctx) return;
+    const pl = own ? { gain: 0.6, pan: 0, delay: 0, dist: 0 } : this.place(x, y, z, 40);
+    if (pl.gain < 0.02) return;
+    const t = this.ctx.currentTime;
+    this.burst(t, 0.7, 900, 0.6, pl.gain * 0.5, pl.pan, 'lowpass', 220);
+    this.burst(t, 0.35, 2600, 0.8, pl.gain * 0.12, pl.pan, 'bandpass', 900);
+  }
+
   explosion(x: number, y: number, z: number): void {
     if (!this.ctx) return;
     const pl = this.place(x, y, z, 900);
